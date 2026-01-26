@@ -2,7 +2,12 @@
 
 import pytest
 import pandas as pd
+from pathlib import Path
 from staff_finder import StaffFinder, JinaSearchClient, OpenAISelector
+
+
+# Get the repository root directory
+REPO_ROOT = Path(__file__).parent.parent
 
 
 def test_imports():
@@ -56,11 +61,124 @@ def test_staff_finder_init():
 
 def test_example_csv_format():
     """Test that example CSV is properly formatted."""
-    df = pd.read_csv("example_schools.csv")
+    csv_path = REPO_ROOT / "example_schools.csv"
+    df = pd.read_csv(csv_path)
     assert "name" in df.columns
     assert "city" in df.columns
     assert "state" in df.columns
     assert len(df) > 0
+
+
+@pytest.mark.asyncio
+async def test_openai_json_parsing_with_markdown():
+    """Test OpenAI response parsing with markdown code blocks."""
+    from staff_finder.openai_selector import OpenAISelector
+    from unittest.mock import AsyncMock, MagicMock
+    
+    # Mock the OpenAI client
+    selector = OpenAISelector.__new__(OpenAISelector)
+    selector.model = "gpt-4o-mini"
+    
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    
+    # Test with markdown-wrapped JSON
+    mock_response.choices[0].message.content = """```json
+{
+    "selected_index": 1,
+    "selected_url": "https://example.edu/staff",
+    "confidence": "high",
+    "reasoning": "Official school domain"
+}
+```"""
+    
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    selector.client = mock_client
+    
+    result = await selector.select_best_url(
+        "Test School",
+        "City",
+        "State",
+        [{"url": "https://example.edu/staff", "title": "Staff", "description": "Staff directory"}]
+    )
+    
+    assert result is not None
+    assert result["url"] == "https://example.edu/staff"
+    assert result["confidence"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_openai_json_parsing_plain():
+    """Test OpenAI response parsing with plain JSON."""
+    from staff_finder.openai_selector import OpenAISelector
+    from unittest.mock import AsyncMock, MagicMock
+    
+    selector = OpenAISelector.__new__(OpenAISelector)
+    selector.model = "gpt-4o-mini"
+    
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    
+    # Test with plain JSON (no markdown)
+    mock_response.choices[0].message.content = """{
+    "selected_index": 2,
+    "selected_url": "https://school.org/faculty",
+    "confidence": "medium",
+    "reasoning": "Contains faculty information"
+}"""
+    
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    selector.client = mock_client
+    
+    result = await selector.select_best_url(
+        "Test School",
+        "City",
+        "State",
+        [
+            {"url": "https://example.com/news", "title": "News", "description": "School news"},
+            {"url": "https://school.org/faculty", "title": "Faculty", "description": "Faculty page"}
+        ]
+    )
+    
+    assert result is not None
+    assert result["url"] == "https://school.org/faculty"
+    assert result["confidence"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_openai_no_suitable_url():
+    """Test OpenAI response when no suitable URL is found."""
+    from staff_finder.openai_selector import OpenAISelector
+    from unittest.mock import AsyncMock, MagicMock
+    
+    selector = OpenAISelector.__new__(OpenAISelector)
+    selector.model = "gpt-4o-mini"
+    
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    
+    # Response with selected_index = 0 (no suitable URL)
+    mock_response.choices[0].message.content = """{
+    "selected_index": 0,
+    "selected_url": null,
+    "confidence": "low",
+    "reasoning": "No staff directory found in results"
+}"""
+    
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    selector.client = mock_client
+    
+    result = await selector.select_best_url(
+        "Test School",
+        "City",
+        "State",
+        [{"url": "https://example.com/news", "title": "News", "description": "School news"}]
+    )
+    
+    assert result is None
 
 
 if __name__ == "__main__":

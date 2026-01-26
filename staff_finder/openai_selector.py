@@ -116,6 +116,6 @@ Important: Only return the JSON object, nothing else."""
                 return None
                 
         except json.JSONDecodeError as e:
-            raise Exception(f"Failed to parse OpenAI response as JSON: {str(e)}\nResponse: {content}")
+            raise Exception(f"Failed to parse OpenAI response as JSON: {str(e)}\nResponse: {content}") from e
         except Exception as e:
-            raise Exception(f"OpenAI API error: {str(e)}")
+            raise Exception(f"OpenAI API error: {str(e)}") from e

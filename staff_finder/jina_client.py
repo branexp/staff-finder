@@ -2,6 +2,7 @@
 
 import os
 from typing import List, Dict, Any, Optional
+from urllib.parse import quote
 import aiohttp
 
 
@@ -16,6 +17,19 @@ class JinaSearchClient:
         """
         self.api_key = api_key or os.getenv("JINA_API_KEY")
         self.base_url = "https://s.jina.ai"
+        self._session: Optional[aiohttp.ClientSession] = None
+    
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Get or create the aiohttp session."""
+        if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(total=30, connect=10)
+            self._session = aiohttp.ClientSession(timeout=timeout)
+        return self._session
+    
+    async def close(self):
+        """Close the aiohttp session."""
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
     
     async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """Search for a query using Jina Search API.
@@ -31,22 +45,23 @@ class JinaSearchClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         
-        # Jina Search API endpoint
-        url = f"{self.base_url}/{query}"
+        # URL-encode the query to handle spaces and special characters
+        encoded_query = quote(query, safe='')
+        url = f"{self.base_url}/{encoded_query}"
         
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        # Parse the response - Jina returns markdown-formatted results
-                        text = await response.text()
-                        results = self._parse_jina_response(text, max_results)
-                        return results
-                    else:
-                        error_text = await response.text()
-                        raise Exception(f"Jina API error {response.status}: {error_text}")
-            except Exception as e:
-                raise Exception(f"Failed to search with Jina API: {str(e)}") from e
+        session = await self._get_session()
+        try:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    # Parse the response - Jina returns markdown-formatted results
+                    text = await response.text()
+                    results = self._parse_jina_response(text, max_results)
+                    return results
+                else:
+                    error_text = await response.text()
+                    raise Exception(f"Jina API error {response.status}: {error_text}")
+        except Exception as e:
+            raise Exception(f"Failed to search with Jina API: {str(e)}") from e
     
     def _parse_jina_response(self, text: str, max_results: int) -> List[Dict[str, Any]]:
         """Parse Jina's markdown response into structured results.

@@ -113,21 +113,32 @@ class StaffFinder:
         Returns:
             List of school records with staff URLs added
         """
-        tasks = [self.find_staff_url(record) for record in school_records]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Handle any exceptions that occurred
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Task failed for record {i}: {str(result)}")
-                processed_results.append({
-                    **school_records[i],
-                    "staff_url": None,
-                    "confidence": None,
-                    "reasoning": f"Task failed: {str(result)}"
-                })
-            else:
-                processed_results.append(result)
-        
-        return processed_results
+        try:
+            # Process in chunks to avoid creating too many tasks at once
+            # This prevents memory issues with large CSVs
+            chunk_size = self.max_concurrent * 2
+            all_results = []
+            
+            for i in range(0, len(school_records), chunk_size):
+                chunk = school_records[i:i + chunk_size]
+                tasks = [self.find_staff_url(record) for record in chunk]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Handle any exceptions that occurred
+                for j, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        record_idx = i + j
+                        logger.error(f"Task failed for record {record_idx}: {str(result)}")
+                        all_results.append({
+                            **chunk[j],
+                            "staff_url": None,
+                            "confidence": None,
+                            "reasoning": f"Task failed: {str(result)}"
+                        })
+                    else:
+                        all_results.append(result)
+            
+            return all_results
+        finally:
+            # Clean up the Jina client session
+            await self.jina_client.close()
