@@ -113,7 +113,7 @@ The tool handles errors gracefully:
 
 1. **Missing API keys** - Clear error message with instructions
 2. **Invalid CSV** - Validates required columns and provides feedback
-3. **Network errors** - Retries and logs failures
+3. **Network errors** - Logged and recorded in the output; processing continues with remaining schools (no automatic retry/backoff yet)
 4. **Individual failures** - Continues processing other schools
 
 Failed schools will have `None` for `staff_url` and an error message in the `reasoning` column.
