@@ -1,14 +1,14 @@
 """Jina Search API integration for retrieving search engine results."""
 
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import aiohttp
 
 
 class JinaSearchClient:
     """Client for interacting with Jina Search API."""
     
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: Optional[str] = None):
         """Initialize the Jina Search client.
         
         Args:
@@ -77,10 +77,9 @@ class JinaSearchClient:
                 current_result["url"] = url
             elif line.startswith("Description:"):
                 current_result["description"] = line.replace("Description:", "").strip()
-            elif line and current_result and "description" not in current_result:
+            elif line and current_result and "description" in current_result:
                 # Continuation of description
-                if "description" in current_result:
-                    current_result["description"] += " " + line
+                current_result["description"] += " " + line
         
         # Add last result
         if current_result and "url" in current_result and len(results) < max_results:

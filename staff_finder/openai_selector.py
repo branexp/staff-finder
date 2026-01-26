@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 class OpenAISelector:
     """Client for using OpenAI to select the best staff directory URL."""
     
-    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
         """Initialize the OpenAI selector.
         
         Args:
@@ -95,10 +95,12 @@ Important: Only return the JSON object, nothing else."""
             # Parse JSON response
             # Remove markdown code blocks if present
             if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
+                parts = content.split("```")
+                if len(parts) >= 2:
+                    content = parts[1]
+                    if content.startswith("json"):
+                        content = content[4:]
+                    content = content.strip()
             
             result = json.loads(content)
             

@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from .jina_client import JinaSearchClient
 from .openai_selector import OpenAISelector
 
@@ -15,8 +15,8 @@ class StaffFinder:
     
     def __init__(
         self,
-        jina_api_key: str = None,
-        openai_api_key: str = None,
+        jina_api_key: Optional[str] = None,
+        openai_api_key: Optional[str] = None,
         openai_model: str = "gpt-4o-mini",
         max_concurrent: int = 5
     ):
