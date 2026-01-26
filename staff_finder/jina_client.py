@@ -46,7 +46,7 @@ class JinaSearchClient:
                         error_text = await response.text()
                         raise Exception(f"Jina API error {response.status}: {error_text}")
             except Exception as e:
-                raise Exception(f"Failed to search with Jina API: {str(e)}")
+                raise Exception(f"Failed to search with Jina API: {str(e)}") from e
     
     def _parse_jina_response(self, text: str, max_results: int) -> List[Dict[str, Any]]:
         """Parse Jina's markdown response into structured results.
