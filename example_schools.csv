@@ -1,4 +1,4 @@
-name,city,state
-Lincoln High School,Portland,Oregon
-Washington Elementary,Seattle,Washington
-Roosevelt Middle School,San Francisco,California
+name,city,state,district_name
+Lincoln High School,Portland,Oregon,Portland Public Schools
+Washington Elementary,Seattle,Washington,Seattle Public Schools
+Roosevelt Middle School,San Francisco,California,San Francisco Unified School District

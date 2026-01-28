@@ -1,103 +1,111 @@
-"""Jina Search API integration for retrieving search engine results."""
+"""Jina AI search client with caching."""
 
-import os
-from typing import List, Dict, Any, Optional
-from urllib.parse import quote
-import aiohttp
+import json
+import hashlib
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Tuple, Union
+
+import httpx  # type: ignore
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception  # type: ignore
+
+from .config import Settings  # type: ignore
 
 
-class JinaSearchClient:
-    """Client for interacting with Jina Search API."""
-    
-    def __init__(self, api_key: Optional[str] = None):
-        """Initialize the Jina Search client.
-        
-        Args:
-            api_key: Jina API key. If not provided, reads from JINA_API_KEY env var.
-        """
-        self.api_key = api_key or os.getenv("JINA_API_KEY")
-        self.base_url = "https://s.jina.ai"
-        self._session: Optional[aiohttp.ClientSession] = None
-    
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create the aiohttp session."""
-        if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=30, connect=10)
-            self._session = aiohttp.ClientSession(timeout=timeout)
-        return self._session
-    
-    async def close(self):
-        """Close the aiohttp session."""
-        if self._session is not None and not self._session.closed:
-            await self._session.close()
-    
-    async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Search for a query using Jina Search API.
-        
-        Args:
-            query: Search query string
-            max_results: Maximum number of results to return
-            
-        Returns:
-            List of search results with URL, title, and description
-        """
-        headers = {}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        
-        # URL-encode the query to handle spaces and special characters
-        encoded_query = quote(query, safe='')
-        url = f"{self.base_url}/{encoded_query}"
-        
-        session = await self._get_session()
+def _extract_items(data) -> List[Dict]:
+    """Extract result items from Jina response."""
+    if isinstance(data, dict):
+        for key in ("results", "data"):
+            if key in data and isinstance(data[key], list):
+                return data[key]
+        return []
+    elif isinstance(data, list):
+        return data
+    return []
+
+
+def _headers(cfg: Settings) -> Dict[str, str]:
+    """Build headers for Jina API requests."""
+    h = {
+        "Authorization": f"Bearer {cfg.jina_api_key}",
+        "Accept": "application/json",
+        "User-Agent": "staff-finder/0.3"
+    }
+    if cfg.jina_no_cache:
+        h["x-no-cache"] = "true"
+    return h
+
+
+def _cache_key(cache_dir: Path, q: str) -> Path:
+    """Generate cache file path for a query."""
+    return cache_dir / (hashlib.sha1(q.encode("utf-8")).hexdigest() + ".json")
+
+
+def _retry_filter(exc: BaseException) -> bool:
+    """Filter for retryable exceptions."""
+    # retry only timeouts/connect errors and 429/5xx; do not retry on 4xx like 422
+    if isinstance(exc, (httpx.ReadTimeout, httpx.ConnectError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        r = exc.response
+        if r is not None:
+            return r.status_code == 429 or (500 <= r.status_code < 600)
+    return False
+
+
+@retry(
+    stop=stop_after_attempt(4),
+    wait=wait_exponential_jitter(initial=1, max=8),
+    retry=retry_if_exception(_retry_filter),
+)
+async def _jina_search(cfg: Settings, query: str, sites: Optional[List[str]] = None) -> List[Dict]:
+    """Perform a Jina search request."""
+    params: List[Tuple[str, str]] = [("q", query)]
+    if sites:
+        for s in sites:
+            params.append(("site", s))
+    timeout = httpx.Timeout(cfg.openai_request_timeout)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.get(f"{cfg.jina_base_url}/", params=params, headers=_headers(cfg))
         try:
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    # Parse the response - Jina returns markdown-formatted results
-                    text = await response.text()
-                    results = self._parse_jina_response(text, max_results)
-                    return results
-                else:
-                    error_text = await response.text()
-                    raise Exception(f"Jina API error {response.status}: {error_text}")
-        except Exception as e:
-            raise Exception(f"Failed to search with Jina API: {str(e)}") from e
-    
-    def _parse_jina_response(self, text: str, max_results: int) -> List[Dict[str, Any]]:
-        """Parse Jina's markdown response into structured results.
-        
-        Args:
-            text: Raw markdown text from Jina API
-            max_results: Maximum number of results to return
-            
-        Returns:
-            List of search result dictionaries
-        """
-        results = []
-        lines = text.split("\n")
-        
-        current_result = {}
-        for line in lines:
-            line = line.strip()
-            
-            # Extract URLs from markdown links [text](url)
-            if line.startswith("Title:"):
-                if current_result and "url" in current_result:
-                    results.append(current_result)
-                    if len(results) >= max_results:
-                        break
-                current_result = {"title": line.replace("Title:", "").strip()}
-            elif line.startswith("URL:"):
-                url = line.replace("URL:", "").strip()
-                current_result["url"] = url
-            elif line.startswith("Description:"):
-                current_result["description"] = line.replace("Description:", "").strip()
-            elif line and current_result and "description" in current_result:
-                # Continuation of description
-                current_result["description"] += " " + line
-        
-        # Add last result
-        if current_result and "url" in current_result and len(results) < max_results:
-            results.append(current_result)
-        
-        return results
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            # 422 means "no results" — treat as empty without raising
+            if e.response is not None and e.response.status_code == 422:
+                return []
+            raise
+        data = resp.json()
+    items = _extract_items(data)
+    # normalize shape and omit non-dict junk
+    out: List[Dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        out.append({
+            "title": (it.get("title") or ""),
+            "url": (it.get("url") or ""),
+            "content": (it.get("content") or it.get("description") or ""),
+        })
+    return out
+
+
+async def search(cfg: Settings, query: str, sites: Optional[List[str]] = None) -> List[Dict]:
+    """Cached async search if enabled."""
+    if not cfg.enable_jina_cache:
+        return await _jina_search(cfg, query, sites)
+
+    cfg.cache_dir.mkdir(parents=True, exist_ok=True)
+    key = _cache_key(cfg.cache_dir, query)
+    if key.exists():
+        try:
+            cached = json.loads(key.read_text(encoding="utf-8"))
+            if isinstance(cached, list):
+                return cached
+        except Exception:
+            pass  # ignore cache read errors
+
+    data = await _jina_search(cfg, query, sites)
+    try:
+        key.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+    return data
