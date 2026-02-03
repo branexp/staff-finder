@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--openai-model",
         dest="openai_model",
-        help="OpenAI model to use (default: gpt-4o-mini)"
+        help="OpenAI model to use (default: gpt-5-mini)"
     )
     parser.add_argument(
         "--max-concurrent",
@@ -129,7 +129,8 @@ async def _flush_results(
 async def main_async() -> None:
     """Main async entry point."""
     cfg = Settings()
-    setup_logging(log_file="run.log", console=False, log_level=cfg.log_level)
+    # If user sets LOG_LEVEL=DEBUG (e.g. via -v/--verbose), enable console logging.
+    setup_logging(log_file="run.log", console=(cfg.log_level.upper() == "DEBUG"), log_level=cfg.log_level)
     require_keys(cfg)
 
     try:

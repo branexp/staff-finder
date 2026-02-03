@@ -63,7 +63,7 @@ async def _jina_search(cfg: Settings, query: str, sites: Optional[List[str]] = N
     if sites:
         for s in sites:
             params.append(("site", s))
-    timeout = httpx.Timeout(cfg.openai_request_timeout)
+    timeout = httpx.Timeout(cfg.jina_request_timeout)
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.get(f"{cfg.jina_base_url}/", params=params, headers=_headers(cfg))
         try:

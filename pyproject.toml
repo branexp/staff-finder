@@ -7,7 +7,7 @@ name = "staff-finder"
 version = "0.3.0"
 description = "Async CLI tool that automatically discovers staff directory URLs for K-12 schools"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Staff Finder Contributors"}
