@@ -118,6 +118,7 @@ Required. Get your API key from [Jina AI](https://jina.ai/).
 ```bash
 # Run with example data
 export OPENAI_API_KEY="sk-..."
+export JINA_API_KEY="jina_..."
 staff-finder example_schools.csv -v
 ```
 
