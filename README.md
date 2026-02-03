@@ -25,18 +25,24 @@ The tool combines two powerful technologies:
 pip install -e .
 ```
 
+Notes:
+- `pyproject.toml` is the source of truth for dependencies.
+- `requirements.txt` is provided as a convenience (it should mirror `pyproject.toml`).
+
 ## Requirements
 
-- Python 3.8+
+- Python 3.11+
 - OpenAI API key (required)
-- Jina API key (optional, but recommended for better results)
+- Jina API key (required)
 
 ## Usage
 
 ### Basic Usage
 
 ```bash
-staff-finder schools.csv --openai-api-key YOUR_KEY
+staff-finder schools.csv \
+  --jina-api-key YOUR_JINA_KEY \
+  --openai-api-key YOUR_OPENAI_KEY
 ```
 
 ### With All Options
@@ -46,7 +52,7 @@ staff-finder schools.csv \
   --output schools_with_urls.csv \
   --jina-api-key YOUR_JINA_KEY \
   --openai-api-key YOUR_OPENAI_KEY \
-  --openai-model gpt-4o-mini \
+  --openai-model gpt-5-mini \
   --max-concurrent 5 \
   --verbose
 ```
@@ -80,11 +86,13 @@ See `example_schools.csv` for a sample input file.
 
 ## Output
 
-The tool creates a new CSV file with all original columns plus:
+The tool creates (or updates) a CSV with all original columns plus:
 
-- `staff_url` — The discovered staff directory URL (or None if not found)
-- `confidence` — Confidence level: high, medium, low
-- `reasoning` — Brief explanation of why this URL was selected
+- `StaffDirectoryURL` — The discovered staff directory URL (`NOT_FOUND` / `ERROR_NOT_FOUND` for failures)
+- `Confidence` — Confidence level: high, medium, low
+- `Reasoning` — Brief explanation of why this URL was selected
+
+If your input already contains a URL column (e.g. `staff_directory_url`), Staff-Finder will reuse it.
 
 ## Configuration Options
 
@@ -93,7 +101,7 @@ The tool creates a new CSV file with all original columns plus:
 | `--output, -o` | Output CSV file path | `{input}_with_urls.csv` |
 | `--jina-api-key` | Jina API key | From `JINA_API_KEY` env var |
 | `--openai-api-key` | OpenAI API key (required) | From `OPENAI_API_KEY` env var |
-| `--openai-model` | OpenAI model to use | `gpt-4o-mini` |
+| `--openai-model` | OpenAI model to use | `gpt-5-mini` |
 | `--max-concurrent` | Max concurrent requests | `5` |
 | `--verbose, -v` | Enable verbose logging | `False` |
 
@@ -103,13 +111,14 @@ The tool creates a new CSV file with all original columns plus:
 Required. Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys).
 
 ### Jina API Key
-Optional but recommended for better search results. Get your API key from [Jina AI](https://jina.ai/).
+Required. Get your API key from [Jina AI](https://jina.ai/).
 
 ## Example
 
 ```bash
 # Run with example data
 export OPENAI_API_KEY="sk-..."
+export JINA_API_KEY="jina_..."
 staff-finder example_schools.csv -v
 ```
 

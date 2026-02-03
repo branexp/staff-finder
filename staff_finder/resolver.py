@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 from .config import Settings  # type: ignore
-from .models import School, SelectionResult  # type: ignore
 from .jina_client import search as jina_search  # type: ignore
+from .models import School, SelectionResult  # type: ignore
+from .openai_selector import (  # type: ignore
+    load_system_prompt,
+    parse_gpt_response,
+    pick_best_url_async,
+)
 from .query_planner import build_queries  # type: ignore
 from .shortlist import round_robin_union  # type: ignore
-from .openai_selector import pick_best_url_async, parse_gpt_response, load_system_prompt  # type: ignore
 
 
 async def resolve_for_school_async(cfg: Settings, school: School) -> SelectionResult:
@@ -26,7 +28,7 @@ async def resolve_for_school_async(cfg: Settings, school: School) -> SelectionRe
         return SelectionResult(url="NOT_FOUND", reasoning="Missing school name")
 
     # 1) Jina search over built queries
-    per_query_results: List[List[Dict]] = []
+    per_query_results: list[list[dict]] = []
     for q in build_queries(cfg, school):
         try:
             per_query_results.append(await jina_search(cfg, q))

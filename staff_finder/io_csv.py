@@ -1,6 +1,6 @@
 """CSV input/output utilities."""
 
-from typing import Tuple
+
 import pandas as pd  # type: ignore
 
 
@@ -10,7 +10,10 @@ def load_df(path: str) -> pd.DataFrame:
     return pd.read_csv(path, dtype=object)
 
 
-def ensure_output_columns(df: pd.DataFrame, preferred: str = "StaffDirectoryURL") -> Tuple[str, str, str]:
+def ensure_output_columns(
+    df: pd.DataFrame,
+    preferred: str = "StaffDirectoryURL",
+) -> tuple[str, str, str]:
     """Ensure output columns exist and return their names.
     
     Returns:
@@ -20,7 +23,13 @@ def ensure_output_columns(df: pd.DataFrame, preferred: str = "StaffDirectoryURL"
     
     # Find or create URL column
     url_col = None
-    for alias in ("staffdirectoryurl", "staff_directory_url", "staff_directory_page", "staffdirectory", "directory_url"):
+    for alias in (
+        "staffdirectoryurl",
+        "staff_directory_url",
+        "staff_directory_page",
+        "staffdirectory",
+        "directory_url",
+    ):
         if alias in lower:
             url_col = lower[alias]
             break

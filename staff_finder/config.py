@@ -2,9 +2,9 @@
 
 import logging
 import os
-from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional
+from pathlib import Path
+
 from dotenv import load_dotenv  # type: ignore
 
 # Load .env once on import (does nothing if file absent)
@@ -62,30 +62,50 @@ class Settings:
     
     # IO
     input_csv: str = field(default_factory=lambda: _env_str("INPUT_CSV", "schools.csv"))
-    output_csv: str = field(default_factory=lambda: _env_str("OUTPUT_CSV", "schools_with_staff_links.csv"))
-    system_prompt_path: str = field(default_factory=lambda: _env_str("SYSTEM_PROMPT_PATH", "system_prompt.md"))
+    output_csv: str = field(
+        default_factory=lambda: _env_str("OUTPUT_CSV", "schools_with_staff_links.csv")
+    )
+    system_prompt_path: str = field(
+        default_factory=lambda: _env_str("SYSTEM_PROMPT_PATH", "system_prompt.md")
+    )
 
     # OpenAI
-    openai_api_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
+    openai_api_key: str | None = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     openai_model: str = field(default_factory=lambda: _env_str("OPENAI_MODEL", "gpt-5-mini"))
     openai_verbosity: str = field(default_factory=lambda: _env_str("OPENAI_VERBOSITY", "low"))
-    openai_reasoning_effort: str = field(default_factory=lambda: _env_str("OPENAI_REASONING_EFFORT", "low"))
-    openai_request_timeout: float = field(default_factory=lambda: _env_float("OPENAI_REQUEST_TIMEOUT", 30.0))
+    openai_reasoning_effort: str = field(
+        default_factory=lambda: _env_str("OPENAI_REASONING_EFFORT", "low")
+    )
+    openai_request_timeout: float = field(
+        default_factory=lambda: _env_float("OPENAI_REQUEST_TIMEOUT", 30.0)
+    )
 
     # Jina
-    jina_api_key: Optional[str] = field(default_factory=lambda: os.getenv("JINA_API_KEY"))
-    jina_base_url: str = field(default_factory=lambda: _env_str("JINA_BASE_URL", "https://s.jina.ai").rstrip("/"))
+    jina_api_key: str | None = field(default_factory=lambda: os.getenv("JINA_API_KEY"))
+    jina_base_url: str = field(
+        default_factory=lambda: _env_str("JINA_BASE_URL", "https://s.jina.ai").rstrip("/")
+    )
     jina_no_cache: bool = field(default_factory=lambda: _env_bool("JINA_NO_CACHE", False))
-    jina_request_timeout: float = field(default_factory=lambda: _env_float("JINA_REQUEST_TIMEOUT", 30.0))
+    jina_request_timeout: float = field(
+        default_factory=lambda: _env_float("JINA_REQUEST_TIMEOUT", 30.0)
+    )
 
     # Planner / shortlist
-    max_queries_per_school: int = field(default_factory=lambda: _env_int("MAX_QUERIES_PER_SCHOOL", 3))
-    candidates_for_selection: int = field(default_factory=lambda: _env_int("CANDIDATES_FOR_SELECTION", 10))
+    max_queries_per_school: int = field(
+        default_factory=lambda: _env_int("MAX_QUERIES_PER_SCHOOL", 3)
+    )
+    candidates_for_selection: int = field(
+        default_factory=lambda: _env_int("CANDIDATES_FOR_SELECTION", 10)
+    )
 
     # Concurrency
-    max_concurrent_schools: int = field(default_factory=lambda: _env_int("MAX_CONCURRENT_SCHOOLS", 5))
+    max_concurrent_schools: int = field(
+        default_factory=lambda: _env_int("MAX_CONCURRENT_SCHOOLS", 5)
+    )
     max_concurrent_jina: int = field(default_factory=lambda: _env_int("MAX_CONCURRENT_JINA", 10))
-    max_concurrent_openai: int = field(default_factory=lambda: _env_int("MAX_CONCURRENT_OPENAI", 4))
+    max_concurrent_openai: int = field(
+        default_factory=lambda: _env_int("MAX_CONCURRENT_OPENAI", 4)
+    )
 
     # Pacing & checkpoint
     per_row_delay_sec: float = field(default_factory=lambda: _env_float("PER_ROW_DELAY_SEC", 0.0))
@@ -117,9 +137,15 @@ def require_keys(cfg: Settings) -> None:
     
     # Warnings for edge-case values
     if cfg.max_concurrent_openai > 10:
-        _logger.warning("MAX_CONCURRENT_OPENAI=%d may exceed rate limits", cfg.max_concurrent_openai)
+        _logger.warning(
+            "MAX_CONCURRENT_OPENAI=%d may exceed rate limits",
+            cfg.max_concurrent_openai,
+        )
     if cfg.checkpoint_every < 10:
-        _logger.warning("CHECKPOINT_EVERY=%d may cause excessive disk writes", cfg.checkpoint_every)
+        _logger.warning(
+            "CHECKPOINT_EVERY=%d may cause excessive disk writes",
+            cfg.checkpoint_every,
+        )
     if cfg.log_level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         _logger.warning("Invalid LOG_LEVEL '%s', defaulting to INFO", cfg.log_level)
         cfg.log_level = "INFO"
@@ -127,5 +153,8 @@ def require_keys(cfg: Settings) -> None:
         _logger.warning("Invalid OPENAI_VERBOSITY '%s', defaulting to low", cfg.openai_verbosity)
         cfg.openai_verbosity = "low"
     if cfg.openai_reasoning_effort.lower() not in ("low", "medium", "high"):
-        _logger.warning("Invalid OPENAI_REASONING_EFFORT '%s', defaulting to low", cfg.openai_reasoning_effort)
+        _logger.warning(
+            "Invalid OPENAI_REASONING_EFFORT '%s', defaulting to low",
+            cfg.openai_reasoning_effort,
+        )
         cfg.openai_reasoning_effort = "low"

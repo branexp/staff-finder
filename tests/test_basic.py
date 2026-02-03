@@ -1,9 +1,9 @@
 """Basic tests for Staff Finder."""
 
-import pytest
-import pandas as pd
 from pathlib import Path
 
+import pandas as pd
+import pytest
 
 # Get the repository root directory
 REPO_ROOT = Path(__file__).parent.parent
@@ -11,7 +11,13 @@ REPO_ROOT = Path(__file__).parent.parent
 
 def test_imports():
     """Test that all modules can be imported."""
-    from staff_finder import Settings, School, SelectionResult, map_headers, resolve_for_school_async
+    from staff_finder import (
+        School,
+        SelectionResult,
+        Settings,
+        map_headers,
+        resolve_for_school_async,
+    )
     assert Settings is not None
     assert School is not None
     assert SelectionResult is not None
@@ -86,7 +92,10 @@ def test_parse_gpt_response_valid():
     """Test parsing valid GPT response with all fields."""
     from staff_finder.openai_selector import parse_gpt_response
     
-    raw = '{"selected_index": 1, "selected_url": "https://example.edu/staff", "confidence": "high", "reasoning": "Official school domain"}'
+    raw = (
+        '{"selected_index": 1, "selected_url": "https://example.edu/staff", '
+        '"confidence": "high", "reasoning": "Official school domain"}'
+    )
     result = parse_gpt_response(raw)
     
     assert result.url == "https://example.edu/staff"
@@ -98,7 +107,10 @@ def test_parse_gpt_response_not_found():
     """Test parsing GPT response with null URL."""
     from staff_finder.openai_selector import parse_gpt_response
     
-    raw = '{"selected_index": 0, "selected_url": null, "confidence": "low", "reasoning": "No staff directory found"}'
+    raw = (
+        '{"selected_index": 0, "selected_url": null, "confidence": "low", '
+        '"reasoning": "No staff directory found"}'
+    )
     result = parse_gpt_response(raw)
     
     assert result.url == "NOT_FOUND"
@@ -168,9 +180,9 @@ def test_round_robin_union():
 
 def test_build_queries():
     """Test query building for search."""
-    from staff_finder.query_planner import build_queries
     from staff_finder.config import Settings
     from staff_finder.models import School
+    from staff_finder.query_planner import build_queries
     
     cfg = Settings()
     cfg.max_queries_per_school = 3

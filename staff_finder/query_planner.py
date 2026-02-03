@@ -1,12 +1,12 @@
 """Query planning for school staff directory searches."""
 
 import re
-from typing import List
-from .models import School  # type: ignore
+
 from .config import Settings  # type: ignore
+from .models import School  # type: ignore
 
 
-def build_queries(cfg: Settings, s: School) -> List[str]:
+def build_queries(cfg: Settings, s: School) -> list[str]:
     """Return up to cfg.max_queries_per_school simple, high-signal queries."""
     where = " ".join([p for p in (s.city, s.state) if p])
     q_school = f'"{s.name}"' if s.name else ""
@@ -15,10 +15,15 @@ def build_queries(cfg: Settings, s: School) -> List[str]:
     candidates = [
         f'{q_school} "staff directory" {where}'.strip(),
         f'{q_school} ("faculty & staff" OR "faculty and staff" OR "staff") {where}'.strip(),
-        f'{q_school} ("our staff" OR "staff list" OR "faculty directory" OR "directory") {where}'.strip(),
+        (
+            f'{q_school} ("our staff" OR "staff list" OR "faculty directory" OR "directory") '
+            f"{where}"
+        ).strip(),
     ]
     if s.district:
-        candidates.append(f'{q_district} ("staff directory" OR "directory") {q_school} {where}'.strip())
+        candidates.append(
+            f'{q_district} ("staff directory" OR "directory") {q_school} {where}'.strip()
+        )
 
     seen, out = set(), []
     for q in candidates:

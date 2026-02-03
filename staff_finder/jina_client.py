@@ -1,17 +1,21 @@
 """Jina AI search client with caching."""
 
-import json
 import hashlib
+import json
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import httpx  # type: ignore
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception  # type: ignore
+from tenacity import (  # type: ignore
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from .config import Settings  # type: ignore
 
 
-def _extract_items(data) -> List[Dict]:
+def _extract_items(data) -> list[dict]:
     """Extract result items from Jina response."""
     if isinstance(data, dict):
         for key in ("results", "data"):
@@ -23,7 +27,7 @@ def _extract_items(data) -> List[Dict]:
     return []
 
 
-def _headers(cfg: Settings) -> Dict[str, str]:
+def _headers(cfg: Settings) -> dict[str, str]:
     """Build headers for Jina API requests."""
     h = {
         "Authorization": f"Bearer {cfg.jina_api_key}",
@@ -57,13 +61,13 @@ def _retry_filter(exc: BaseException) -> bool:
     wait=wait_exponential_jitter(initial=1, max=8),
     retry=retry_if_exception(_retry_filter),
 )
-async def _jina_search(cfg: Settings, query: str, sites: Optional[List[str]] = None) -> List[Dict]:
+async def _jina_search(cfg: Settings, query: str, sites: list[str] | None = None) -> list[dict]:
     """Perform a Jina search request."""
-    params: List[Tuple[str, str]] = [("q", query)]
+    params: list[tuple[str, str]] = [("q", query)]
     if sites:
         for s in sites:
             params.append(("site", s))
-    timeout = httpx.Timeout(cfg.openai_request_timeout)
+    timeout = httpx.Timeout(cfg.jina_request_timeout)
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.get(f"{cfg.jina_base_url}/", params=params, headers=_headers(cfg))
         try:
@@ -76,7 +80,7 @@ async def _jina_search(cfg: Settings, query: str, sites: Optional[List[str]] = N
         data = resp.json()
     items = _extract_items(data)
     # normalize shape and omit non-dict junk
-    out: List[Dict] = []
+    out: list[dict] = []
     for it in items:
         if not isinstance(it, dict):
             continue
@@ -88,7 +92,7 @@ async def _jina_search(cfg: Settings, query: str, sites: Optional[List[str]] = N
     return out
 
 
-async def search(cfg: Settings, query: str, sites: Optional[List[str]] = None) -> List[Dict]:
+async def search(cfg: Settings, query: str, sites: list[str] | None = None) -> list[dict]:
     """Cached async search if enabled."""
     if not cfg.enable_jina_cache:
         return await _jina_search(cfg, query, sites)
