@@ -25,6 +25,10 @@ The tool combines two powerful technologies:
 pip install -e .
 ```
 
+Notes:
+- `pyproject.toml` is the source of truth for dependencies.
+- `requirements.txt` is provided as a convenience (it should mirror `pyproject.toml`).
+
 ## Requirements
 
 - Python 3.11+
