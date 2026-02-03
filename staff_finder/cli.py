@@ -8,9 +8,10 @@ from typing import Any
 import httpx  # type: ignore
 import pandas as pd  # type: ignore
 import typer
+from dotenv import load_dotenv  # type: ignore
 from tqdm import tqdm  # type: ignore
 
-from .config import Settings, require_keys
+from .config import ConfigError, Settings, load_settings
 from .io_csv import ensure_output_columns, load_df, save_df
 from .limiters import Limiters
 from .logging_setup import setup_logging
@@ -91,7 +92,7 @@ async def run_async(cfg: Settings, *, show_progress: bool) -> dict[str, Any]:
         console=(cfg.log_level.upper() == "DEBUG"),
         log_level=cfg.log_level,
     )
-    require_keys(cfg)
+    # cfg is validated by load_settings() / validate_settings().
 
     input_path = Path(cfg.input_csv)
     output_path = Path(cfg.output_csv)
@@ -218,22 +219,22 @@ def run(
 ) -> None:
     """Discover staff directory URLs for schools in a CSV."""
 
-    cfg = Settings()
+    # Optional local .env support (for development). This does not override real env vars.
+    load_dotenv(override=False)
 
-    # Apply CLI overrides without mutating env vars.
-    cfg.input_csv = str(input_csv)
-    cfg.output_csv = str(output) if output else str(_default_output_path(input_csv))
-
-    if jina_api_key is not None:
-        cfg.jina_api_key = jina_api_key
-    if openai_api_key is not None:
-        cfg.openai_api_key = openai_api_key
-    if openai_model is not None:
-        cfg.openai_model = openai_model
-    if max_concurrent is not None:
-        cfg.max_concurrent_schools = max_concurrent
-    if verbose:
-        cfg.log_level = "DEBUG"
+    try:
+        cfg = load_settings(
+            input_csv=str(input_csv),
+            output_csv=str(output) if output else None,
+            jina_api_key=jina_api_key,
+            openai_api_key=openai_api_key,
+            openai_model=openai_model,
+            max_concurrent_schools=max_concurrent,
+            log_level="DEBUG" if verbose else None,
+        )
+    except ConfigError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.API_OR_AUTH) from e
 
     if debug:
         typer.echo("Debug:")

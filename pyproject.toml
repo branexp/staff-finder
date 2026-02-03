@@ -20,6 +20,7 @@ dependencies = [
     "tenacity>=8.2.3",
     "tqdm>=4.66.4",
     "python-dotenv>=1.0.1",
+    "platformdirs>=4.2",
 ]
 
 [project.scripts]

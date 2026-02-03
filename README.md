@@ -65,6 +65,29 @@ export OPENAI_API_KEY="your_openai_key"
 staff-finder run schools.csv
 ```
 
+## Configuration
+
+Config precedence:
+1. CLI flags
+2. environment variables (plus optional local `.env` for development)
+3. config file
+4. defaults
+
+Config file locations (low → high precedence):
+- `~/.config/staff-finder/config.toml`
+- `~/.staff-finder.toml`
+
+Example `config.toml`:
+
+```toml
+openai_model = "gpt-5-mini"
+max_concurrent_schools = 5
+
+# Prefer env vars for API keys. If you do store them here, chmod 600.
+# openai_api_key = "..."
+# jina_api_key = "..."
+```
+
 ## Input CSV Format
 
 The input CSV file should contain at least these columns:
