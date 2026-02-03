@@ -40,7 +40,7 @@ Notes:
 ### Basic Usage
 
 ```bash
-staff-finder schools.csv \
+staff-finder run schools.csv \
   --jina-api-key YOUR_JINA_KEY \
   --openai-api-key YOUR_OPENAI_KEY
 ```
@@ -48,7 +48,7 @@ staff-finder schools.csv \
 ### With All Options
 
 ```bash
-staff-finder schools.csv \
+staff-finder run schools.csv \
   --output schools_with_urls.csv \
   --jina-api-key YOUR_JINA_KEY \
   --openai-api-key YOUR_OPENAI_KEY \
@@ -62,7 +62,7 @@ staff-finder schools.csv \
 ```bash
 export JINA_API_KEY="your_jina_key"
 export OPENAI_API_KEY="your_openai_key"
-staff-finder schools.csv
+staff-finder run schools.csv
 ```
 
 ## Input CSV Format
@@ -119,7 +119,8 @@ Required. Get your API key from [Jina AI](https://jina.ai/).
 # Run with example data
 export OPENAI_API_KEY="sk-..."
 export JINA_API_KEY="jina_..."
-staff-finder example_schools.csv -v
+staff-finder run example_schools.csv -v
+
 ```
 
 Output:

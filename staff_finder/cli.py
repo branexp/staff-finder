@@ -1,108 +1,62 @@
-#!/usr/bin/env python3
-"""CLI entry point for Staff Finder."""
+from __future__ import annotations
 
-import argparse
 import asyncio
-import os
+import json
+from pathlib import Path
 from typing import Any
 
+import httpx  # type: ignore
 import pandas as pd  # type: ignore
+import typer
 from tqdm import tqdm  # type: ignore
 
-from .config import Settings, require_keys  # type: ignore
-from .io_csv import ensure_output_columns, load_df, save_df  # type: ignore
-from .limiters import Limiters  # type: ignore
-from .logging_setup import setup_logging  # type: ignore
-from .models import map_headers  # type: ignore
-from .resolver import resolve_for_school_async  # type: ignore
+from .config import Settings, require_keys
+from .io_csv import ensure_output_columns, load_df, save_df
+from .limiters import Limiters
+from .logging_setup import setup_logging
+from .models import map_headers
+from .resolver import resolve_for_school_async
+
+app = typer.Typer(add_completion=False, no_args_is_help=True)
+
+
+@app.callback()
+def main() -> None:
+    """Staff Finder CLI."""
+    return
 
 NULLISH = {"", "nan", "none", "not_found", "error_not_found"}
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        prog="staff-finder",
-        description=(
-            "Async CLI tool that automatically discovers staff directory URLs for K-12 schools"
-        ),
-    )
-    parser.add_argument(
-        "input_csv",
-        help="Path to input CSV file containing school records"
-    )
-    parser.add_argument(
-        "-o", "--output",
-        dest="output_csv",
-        help="Output CSV file path (default: {input}_with_urls.csv)"
-    )
-    parser.add_argument(
-        "--jina-api-key",
-        dest="jina_api_key",
-        help="Jina API key (or set JINA_API_KEY env var)"
-    )
-    parser.add_argument(
-        "--openai-api-key",
-        dest="openai_api_key",
-        help="OpenAI API key (or set OPENAI_API_KEY env var)"
-    )
-    parser.add_argument(
-        "--openai-model",
-        dest="openai_model",
-        help="OpenAI model to use (default: gpt-5-mini)"
-    )
-    parser.add_argument(
-        "--max-concurrent",
-        dest="max_concurrent",
-        type=int,
-        help="Max concurrent requests (default: 5)"
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose logging"
-    )
-    return parser.parse_args()
+class ExitCode:
+    SUCCESS = 0
+    VALIDATION = 2
+    API_OR_AUTH = 3
+    NETWORK = 4
+    UNEXPECTED = 5
 
 
-def apply_args_to_env(args: argparse.Namespace) -> None:
-    """Apply CLI arguments to environment variables for Settings to pick up."""
-    os.environ["INPUT_CSV"] = args.input_csv
-    
-    if args.output_csv:
-        os.environ["OUTPUT_CSV"] = args.output_csv
-    elif "OUTPUT_CSV" not in os.environ:
-        # Generate default output filename
-        import pathlib
-        input_path = pathlib.Path(args.input_csv)
-        default_output = input_path.stem + "_with_urls" + input_path.suffix
-        os.environ["OUTPUT_CSV"] = default_output
-    
-    if args.jina_api_key:
-        os.environ["JINA_API_KEY"] = args.jina_api_key
-    
-    if args.openai_api_key:
-        os.environ["OPENAI_API_KEY"] = args.openai_api_key
-    
-    if args.openai_model:
-        os.environ["OPENAI_MODEL"] = args.openai_model
-    
-    if args.max_concurrent:
-        os.environ["MAX_CONCURRENT_SCHOOLS"] = str(args.max_concurrent)
-    
-    if args.verbose:
-        os.environ["LOG_LEVEL"] = "DEBUG"
+def _default_output_path(input_csv: Path) -> Path:
+    return input_csv.with_name(input_csv.stem + "_with_urls" + input_csv.suffix)
+
+
+def _redact_secret(value: str | None) -> str:
+    if not value:
+        return ""
+    v = value.strip()
+    if len(v) <= 8:
+        return "***"
+    return v[:3] + "…" + v[-2:]
 
 
 async def _worker(
-    idx: int, 
-    row: pd.Series, 
-    cols: tuple[str, str, str], 
-    cfg: Settings, 
-    lim: Limiters, 
-    results: dict[int, tuple[str, str, str]]
+    idx: int,
+    row: pd.Series,
+    cols: tuple[str, str, str],
+    cfg: Settings,
+    lim: Limiters,
+    results: dict[int, tuple[str, str, str]],
 ) -> None:
-    """Process a single school row."""
     async with lim.sem_schools:
         try:
             school = map_headers(row)
@@ -113,26 +67,25 @@ async def _worker(
 
 
 async def _flush_results(
-    df: pd.DataFrame, 
-    cols: tuple[str, str, str], 
-    results: dict[int, tuple[str, str, str]], 
-    output_csv: str
+    df: pd.DataFrame,
+    cols: tuple[str, str, str],
+    results: dict[int, tuple[str, str, str]],
+    output_csv: str,
 ) -> None:
-    """Flush accumulated results to CSV."""
     url_col, conf_col, reason_col = cols
-    if results:
-        for i, (url, conf, reason) in results.items():
-            df.at[i, url_col] = url
-            df.at[i, conf_col] = conf
-            df.at[i, reason_col] = reason
-        save_df(df, output_csv)
-        results.clear()
+    if not results:
+        return
+
+    for i, (url, conf, reason) in results.items():
+        df.at[i, url_col] = url
+        df.at[i, conf_col] = conf
+        df.at[i, reason_col] = reason
+
+    save_df(df, output_csv)
+    results.clear()
 
 
-async def main_async() -> None:
-    """Main async entry point."""
-    cfg = Settings()
-    # If user sets LOG_LEVEL=DEBUG (e.g. via -v/--verbose), enable console logging.
+async def run_async(cfg: Settings, *, show_progress: bool) -> dict[str, Any]:
     setup_logging(
         log_file="run.log",
         console=(cfg.log_level.upper() == "DEBUG"),
@@ -140,17 +93,20 @@ async def main_async() -> None:
     )
     require_keys(cfg)
 
-    try:
-        df = load_df(cfg.input_csv)
-    except FileNotFoundError:
-        print(f"Error: The file '{cfg.input_csv}' was not found.")
-        return
+    input_path = Path(cfg.input_csv)
+    output_path = Path(cfg.output_csv)
+
+    if cfg.enable_resume and output_path.exists():
+        df = load_df(str(output_path))
+        source_path = output_path
+    else:
+        df = load_df(str(input_path))
+        source_path = input_path
 
     cols = ensure_output_columns(df)
     url_col = cols[0]
     lim = Limiters.from_settings(cfg)
 
-    # Build pending list with NA-safe emptiness check
     pending_rows: list[tuple[int, pd.Series]] = []
     for idx, row in df.iterrows():
         val = row.get(url_col, "")
@@ -158,29 +114,32 @@ async def main_async() -> None:
         if existing == "" or existing.lower() in NULLISH:
             pending_rows.append((idx, row))
 
-    print(f"Input rows: {len(df)}; pending: {len(pending_rows)}; output col: {url_col}")
-    if not pending_rows:
-        print("Nothing to do — output already populated.")
-        return
-
     results: dict[int, tuple[str, str, str]] = {}
     in_flight: set[asyncio.Task[Any]] = set()
-    pbar = tqdm(total=len(pending_rows), desc="Finding staff directories")
     completed_since_checkpoint = 0
 
-    async def spawn(idx: int, row: pd.Series):
-        return asyncio.create_task(_worker(idx, row, cols, cfg, lim, results))
+    pbar = tqdm(
+        total=len(pending_rows),
+        desc="Finding staff directories",
+        disable=not show_progress,
+    )
+
+    async def spawn(i: int, r: pd.Series) -> asyncio.Task[Any]:
+        return asyncio.create_task(_worker(i, r, cols, cfg, lim, results))
 
     try:
         it = iter(pending_rows)
-        # prime pool
         for _ in range(min(cfg.max_concurrent_schools, len(pending_rows))):
             i, r = next(it)
             in_flight.add(await spawn(i, r))
 
         while in_flight:
-            done, in_flight = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
-            pbar.update(len(done))
+            done, in_flight = await asyncio.wait(
+                in_flight,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if show_progress:
+                pbar.update(len(done))
             completed_since_checkpoint += len(done)
 
             for _ in range(len(done)):
@@ -198,15 +157,116 @@ async def main_async() -> None:
 
     except KeyboardInterrupt:
         await _flush_results(df, cols, results, cfg.output_csv)
-        print("\nInterrupted. Partial results saved.")
+        raise
+
+    # Summary counts
+    urls = df[url_col].astype(str).fillna("").str.strip().str.lower()
+    found = int(((urls != "") & (~urls.isin({"not_found", "error_not_found"}))).sum())
+    not_found = int((urls == "not_found").sum())
+    errors = int((urls == "error_not_found").sum())
+
+    return {
+        "input_csv": str(input_path),
+        "output_csv": str(output_path),
+        "source_loaded": str(source_path),
+        "rows_total": int(len(df)),
+        "rows_pending": int(len(pending_rows)),
+        "rows_found": found,
+        "rows_not_found": not_found,
+        "rows_error": errors,
+        "output_url_column": url_col,
+    }
 
 
-def entrypoint():
-    """CLI entry point."""
-    args = parse_args()
-    apply_args_to_env(args)
-    asyncio.run(main_async())
+@app.command()
+def run(
+    input_csv: Path = typer.Argument(..., exists=True, dir_okay=False, help="Input CSV."),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        dir_okay=False,
+        help="Output CSV path (default: <input>_with_urls.csv).",
+    ),
+    jina_api_key: str | None = typer.Option(
+        None,
+        "--jina-api-key",
+        envvar="JINA_API_KEY",
+        help="Jina API key (required).",
+    ),
+    openai_api_key: str | None = typer.Option(
+        None,
+        "--openai-api-key",
+        envvar="OPENAI_API_KEY",
+        help="OpenAI API key (required).",
+    ),
+    openai_model: str | None = typer.Option(
+        None,
+        "--openai-model",
+        envvar="OPENAI_MODEL",
+        help="OpenAI model to use (default: gpt-5-mini).",
+    ),
+    max_concurrent: int | None = typer.Option(
+        None,
+        "--max-concurrent",
+        min=1,
+        help="Max concurrent schools (default: 5).",
+    ),
+    verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable verbose logging."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
+    debug: bool = typer.Option(False, "--debug", help="Print debug metadata (redacted)."),
+) -> None:
+    """Discover staff directory URLs for schools in a CSV."""
 
+    cfg = Settings()
 
-if __name__ == "__main__":
-    entrypoint()
+    # Apply CLI overrides without mutating env vars.
+    cfg.input_csv = str(input_csv)
+    cfg.output_csv = str(output) if output else str(_default_output_path(input_csv))
+
+    if jina_api_key is not None:
+        cfg.jina_api_key = jina_api_key
+    if openai_api_key is not None:
+        cfg.openai_api_key = openai_api_key
+    if openai_model is not None:
+        cfg.openai_model = openai_model
+    if max_concurrent is not None:
+        cfg.max_concurrent_schools = max_concurrent
+    if verbose:
+        cfg.log_level = "DEBUG"
+
+    if debug:
+        typer.echo("Debug:")
+        typer.echo(f"- openai_api_key={_redact_secret(cfg.openai_api_key)}")
+        typer.echo(f"- jina_api_key={_redact_secret(cfg.jina_api_key)}")
+        typer.echo(f"- openai_model={cfg.openai_model}")
+        typer.echo(f"- max_concurrent_schools={cfg.max_concurrent_schools}")
+
+    try:
+        summary = asyncio.run(run_async(cfg, show_progress=not json_output))
+    except FileNotFoundError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
+    except RuntimeError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.API_OR_AUTH) from e
+    except (httpx.ReadTimeout, httpx.ConnectError) as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.NETWORK) from e
+    except KeyboardInterrupt:
+        typer.echo("Interrupted. Partial results saved.")
+        raise typer.Exit(ExitCode.NETWORK) from None
+    except Exception as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.UNEXPECTED) from e
+
+    if json_output:
+        typer.echo(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"Loaded: {summary['source_loaded']}")
+        typer.echo(f"Output: {summary['output_csv']}")
+        typer.echo(
+            f"Rows: total={summary['rows_total']} pending={summary['rows_pending']} "
+            f"found={summary['rows_found']} not_found={summary['rows_not_found']} "
+            f"error={summary['rows_error']}"
+        )
