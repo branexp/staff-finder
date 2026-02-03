@@ -1,11 +1,10 @@
 """Shortlist utilities for candidate URL selection."""
 
-from typing import Dict, List
 
 
-def round_robin_union(per_query: List[List[Dict]], limit: int) -> List[Dict]:
+def round_robin_union(per_query: list[list[dict]], limit: int) -> list[dict]:
     """Interleave lists to keep variety; stop at limit."""
-    out: List[Dict] = []
+    out: list[dict] = []
     seen = set()
     i = 0
     while len(out) < limit:

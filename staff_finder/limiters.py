@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
+
 from .config import Settings  # type: ignore
 
 

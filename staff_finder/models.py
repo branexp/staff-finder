@@ -1,7 +1,7 @@
 """Data models for Staff Finder."""
 
 from dataclasses import dataclass
-from typing import Optional
+
 import pandas as pd  # type: ignore
 
 
@@ -19,7 +19,7 @@ class School:
 class SelectionResult:
     """Represents the result of URL selection with confidence and reasoning."""
     url: str
-    confidence: Optional[str] = None
+    confidence: str | None = None
     reasoning: str = ""
 
 
