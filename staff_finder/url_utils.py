@@ -2,12 +2,11 @@
 
 import re
 from urllib.parse import urlsplit, urlunsplit
-from typing import Optional
 
 URL_RE = re.compile(r"https?://[^\s\"'>)]+", re.IGNORECASE)
 
 
-def sanitize_url(url: Optional[str]) -> Optional[str]:
+def sanitize_url(url: str | None) -> str | None:
     """Sanitize and normalize a URL.
     
     Args:

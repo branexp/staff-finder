@@ -2,14 +2,18 @@
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
 
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception_type  # type: ignore
-from openai import AsyncOpenAI, APIConnectionError, RateLimitError, APITimeoutError  # type: ignore
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError  # type: ignore
+from tenacity import (  # type: ignore
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from .config import Settings  # type: ignore
 from .models import School, SelectionResult  # type: ignore
-from .url_utils import sanitize_url, URL_RE  # type: ignore
+from .url_utils import URL_RE, sanitize_url  # type: ignore
 
 
 def load_system_prompt(path: str) -> str:
@@ -22,9 +26,13 @@ def load_system_prompt(path: str) -> str:
     # fallback default
     return (
         "# Staff Directory Evaluator — System Instructions\n\n"
-        "You analyze up to 5–12 SERP candidates (title, url, content) for a K-12 school and return the single best staff directory URL.\n"
-        "Prefer the school's own site; otherwise the district page scoped to the school. Avoid socials/aggregators.\n"
-        "Output exactly one JSON object: {\"selected_index\": <int>, \"selected_url\": \"<url or null>\", \"confidence\": \"high|medium|low\", \"reasoning\": \"<brief explanation>\"}\n"
+        "You analyze up to 5–12 SERP candidates (title, url, content) for a K-12 school and "
+        "return the single best staff directory URL.\n"
+        "Prefer the school's own site; otherwise the district page scoped to the school. "
+        "Avoid socials/aggregators.\n"
+        "Output exactly one JSON object: "
+        "{\"selected_index\": <int>, \"selected_url\": \"<url or null>\", "
+        "\"confidence\": \"high|medium|low\", \"reasoning\": \"<brief explanation>\"}\n"
     )
 
 
@@ -35,7 +43,7 @@ def _truncate_content(content: str, max_chars: int) -> str:
     return content[:max_chars] + "..."
 
 
-def _payload(school: School, candidates: List[Dict], max_content_chars: int) -> Dict:
+def _payload(school: School, candidates: list[dict], max_content_chars: int) -> dict:
     """Build the payload for OpenAI request."""
     # Truncate content to prevent context length issues
     truncated_candidates = [
@@ -73,7 +81,7 @@ def _response_text(resp) -> str:
     return "".join(pieces).strip()
 
 
-def parse_gpt_response(raw: Optional[str]) -> SelectionResult:
+def parse_gpt_response(raw: str | None) -> SelectionResult:
     """Parse GPT response into a SelectionResult with url, confidence, and reasoning."""
     if not raw:
         return SelectionResult(url="ERROR_NOT_FOUND", reasoning="No response from model")
@@ -121,7 +129,12 @@ _RESPONSE_SCHEMA = {
     wait=wait_exponential_jitter(initial=1, max=6),
     retry=retry_if_exception_type((APIConnectionError, RateLimitError, APITimeoutError)),
 )
-async def pick_best_url_async(cfg: Settings, system_instructions: str, school: School, candidates: List[Dict]) -> str:
+async def pick_best_url_async(
+    cfg: Settings,
+    system_instructions: str,
+    school: School,
+    candidates: list[dict],
+) -> str:
     """Use OpenAI to select the best staff directory URL from candidates."""
     client = AsyncOpenAI(timeout=cfg.openai_request_timeout)
     resp = await client.responses.create(

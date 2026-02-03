@@ -4,16 +4,17 @@
 import argparse
 import asyncio
 import os
-from typing import Dict, Any, Tuple
-from tqdm import tqdm  # type: ignore
+from typing import Any
+
 import pandas as pd  # type: ignore
+from tqdm import tqdm  # type: ignore
 
 from .config import Settings, require_keys  # type: ignore
-from .logging_setup import setup_logging  # type: ignore
-from .io_csv import load_df, ensure_output_columns, save_df  # type: ignore
-from .models import map_headers, SelectionResult  # type: ignore
-from .resolver import resolve_for_school_async  # type: ignore
+from .io_csv import ensure_output_columns, load_df, save_df  # type: ignore
 from .limiters import Limiters  # type: ignore
+from .logging_setup import setup_logging  # type: ignore
+from .models import map_headers  # type: ignore
+from .resolver import resolve_for_school_async  # type: ignore
 
 NULLISH = {"", "nan", "none", "not_found", "error_not_found"}
 
@@ -22,7 +23,9 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="staff-finder",
-        description="Async CLI tool that automatically discovers staff directory URLs for K-12 schools"
+        description=(
+            "Async CLI tool that automatically discovers staff directory URLs for K-12 schools"
+        ),
     )
     parser.add_argument(
         "input_csv",
@@ -94,10 +97,10 @@ def apply_args_to_env(args: argparse.Namespace) -> None:
 async def _worker(
     idx: int, 
     row: pd.Series, 
-    cols: Tuple[str, str, str], 
+    cols: tuple[str, str, str], 
     cfg: Settings, 
     lim: Limiters, 
-    results: Dict[int, Tuple[str, str, str]]
+    results: dict[int, tuple[str, str, str]]
 ) -> None:
     """Process a single school row."""
     async with lim.sem_schools:
@@ -111,8 +114,8 @@ async def _worker(
 
 async def _flush_results(
     df: pd.DataFrame, 
-    cols: Tuple[str, str, str], 
-    results: Dict[int, Tuple[str, str, str]], 
+    cols: tuple[str, str, str], 
+    results: dict[int, tuple[str, str, str]], 
     output_csv: str
 ) -> None:
     """Flush accumulated results to CSV."""
@@ -130,7 +133,11 @@ async def main_async() -> None:
     """Main async entry point."""
     cfg = Settings()
     # If user sets LOG_LEVEL=DEBUG (e.g. via -v/--verbose), enable console logging.
-    setup_logging(log_file="run.log", console=(cfg.log_level.upper() == "DEBUG"), log_level=cfg.log_level)
+    setup_logging(
+        log_file="run.log",
+        console=(cfg.log_level.upper() == "DEBUG"),
+        log_level=cfg.log_level,
+    )
     require_keys(cfg)
 
     try:
@@ -156,7 +163,7 @@ async def main_async() -> None:
         print("Nothing to do — output already populated.")
         return
 
-    results: Dict[int, Tuple[str, str, str]] = {}
+    results: dict[int, tuple[str, str, str]] = {}
     in_flight: set[asyncio.Task[Any]] = set()
     pbar = tqdm(total=len(pending_rows), desc="Finding staff directories")
     completed_since_checkpoint = 0

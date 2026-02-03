@@ -5,7 +5,11 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
-def setup_logging(log_file: str = "run.log", console: bool = False, log_level: str = "INFO") -> None:
+def setup_logging(
+    log_file: str = "run.log",
+    console: bool = False,
+    log_level: str = "INFO",
+) -> None:
     """Configure logging with optional file and console output.
     
     Args:
