@@ -8,9 +8,10 @@ from typing import Any
 import httpx  # type: ignore
 import pandas as pd  # type: ignore
 import typer
+from dotenv import load_dotenv  # type: ignore
 from tqdm import tqdm  # type: ignore
 
-from .config import Settings, require_keys
+from .config import ConfigError, Settings, load_settings, require_keys
 from .io_csv import ensure_output_columns, load_df, save_df
 from .limiters import Limiters
 from .logging_setup import setup_logging
@@ -24,6 +25,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True)
 def main() -> None:
     """Staff Finder CLI."""
     return
+
 
 NULLISH = {"", "nan", "none", "not_found", "error_not_found"}
 
@@ -188,29 +190,35 @@ def run(
         dir_okay=False,
         help="Output CSV path (default: <input>_with_urls.csv).",
     ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        dir_okay=False,
+        help=(
+            "Optional config.toml path. Default search: "
+            "~/.config/staff-finder/config.toml then ~/.staff-finder.toml."
+        ),
+    ),
     jina_api_key: str | None = typer.Option(
         None,
         "--jina-api-key",
-        envvar="JINA_API_KEY",
-        help="Jina API key (required).",
+        help="Jina API key (required; can also come from env/config).",
     ),
     openai_api_key: str | None = typer.Option(
         None,
         "--openai-api-key",
-        envvar="OPENAI_API_KEY",
-        help="OpenAI API key (required).",
+        help="OpenAI API key (required; can also come from env/config).",
     ),
     openai_model: str | None = typer.Option(
         None,
         "--openai-model",
-        envvar="OPENAI_MODEL",
-        help="OpenAI model to use (default: gpt-5-mini).",
+        help="OpenAI model to use (default: gpt-5-mini; can also come from env/config).",
     ),
     max_concurrent: int | None = typer.Option(
         None,
         "--max-concurrent",
         min=1,
-        help="Max concurrent schools (default: 5).",
+        help="Max concurrent schools (default: 5; can also come from env/config).",
     ),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable verbose logging."),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
@@ -218,22 +226,22 @@ def run(
 ) -> None:
     """Discover staff directory URLs for schools in a CSV."""
 
-    cfg = Settings()
+    # Optional local dev convenience: load .env into env vars.
+    # Precedence is still: flags -> env -> config.toml -> defaults.
+    load_dotenv(override=False)
 
-    # Apply CLI overrides without mutating env vars.
-    cfg.input_csv = str(input_csv)
-    cfg.output_csv = str(output) if output else str(_default_output_path(input_csv))
+    output_csv = str(output) if output else str(_default_output_path(input_csv))
 
-    if jina_api_key is not None:
-        cfg.jina_api_key = jina_api_key
-    if openai_api_key is not None:
-        cfg.openai_api_key = openai_api_key
-    if openai_model is not None:
-        cfg.openai_model = openai_model
-    if max_concurrent is not None:
-        cfg.max_concurrent_schools = max_concurrent
-    if verbose:
-        cfg.log_level = "DEBUG"
+    cfg = load_settings(
+        config_path=config,
+        input_csv=str(input_csv),
+        output_csv=output_csv,
+        jina_api_key=jina_api_key,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
+        max_concurrent_schools=max_concurrent,
+        log_level="DEBUG" if verbose else None,
+    )
 
     if debug:
         typer.echo("Debug:")
@@ -241,13 +249,14 @@ def run(
         typer.echo(f"- jina_api_key={_redact_secret(cfg.jina_api_key)}")
         typer.echo(f"- openai_model={cfg.openai_model}")
         typer.echo(f"- max_concurrent_schools={cfg.max_concurrent_schools}")
+        typer.echo(f"- config={str(config) if config else '(auto)'}")
 
     try:
         summary = asyncio.run(run_async(cfg, show_progress=not json_output))
     except FileNotFoundError as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.VALIDATION) from e
-    except RuntimeError as e:
+    except ConfigError as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.API_OR_AUTH) from e
     except (httpx.ReadTimeout, httpx.ConnectError) as e:
