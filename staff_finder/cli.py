@@ -62,7 +62,7 @@ async def _worker(
     async with lim.sem_schools:
         try:
             school = map_headers(row)
-            result = await resolve_for_school_async(cfg, school)
+            result = await resolve_for_school_async(cfg, school, lim)
             results[idx] = (result.url, result.confidence or "", result.reasoning)
         except Exception as e:
             results[idx] = ("ERROR_NOT_FOUND", "", str(e))
