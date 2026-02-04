@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -9,6 +10,7 @@ import respx
 
 from staff_finder.config import Settings
 from staff_finder.jina_client import _retry_filter, search
+from staff_finder.limiters import Limiters
 from staff_finder.models import School
 from staff_finder.openai_selector import pick_best_url_async
 from staff_finder.resolver import resolve_for_school_async
@@ -108,3 +110,71 @@ async def test_resolver_end_to_end_no_network(monkeypatch: pytest.MonkeyPatch) -
     assert result.url == "https://example.edu/staff"
     assert result.confidence == "high"
     assert result.reasoning == "fixture"
+
+
+@pytest.mark.asyncio
+async def test_limiters_constrain_jina_and_openai(monkeypatch: pytest.MonkeyPatch) -> None:
+    jina_in_flight = 0
+    openai_in_flight = 0
+    max_jina = 0
+    max_openai = 0
+    lock = asyncio.Lock()
+
+    async def fake_jina_search(cfg: Settings, q: str, sites: list[str] | None = None) -> list[dict]:
+        nonlocal jina_in_flight, max_jina
+        async with lock:
+            jina_in_flight += 1
+            max_jina = max(max_jina, jina_in_flight)
+        await asyncio.sleep(0.03)
+        async with lock:
+            jina_in_flight -= 1
+        return [
+            {
+                "title": "Staff Directory",
+                "url": "https://example.edu/staff",
+                "content": "Directory",
+            }
+        ]
+
+    async def fake_pick_best_url_async(
+        cfg: Settings,
+        system_instructions: str,
+        school: School,
+        candidates: list[dict],
+    ) -> str:
+        nonlocal openai_in_flight, max_openai
+        async with lock:
+            openai_in_flight += 1
+            max_openai = max(max_openai, openai_in_flight)
+        await asyncio.sleep(0.03)
+        async with lock:
+            openai_in_flight -= 1
+        return json.dumps(
+            {
+                "selected_index": 0,
+                "selected_url": "https://example.edu/staff",
+                "confidence": "high",
+                "reasoning": "fixture",
+            }
+        )
+
+    monkeypatch.setattr("staff_finder.resolver.jina_search", fake_jina_search)
+    monkeypatch.setattr("staff_finder.resolver.pick_best_url_async", fake_pick_best_url_async)
+
+    cfg = Settings(openai_api_key="sk_test", jina_api_key="jina_test", enable_jina_cache=False)
+    cfg.max_queries_per_school = 1
+
+    lim = Limiters(
+        sem_schools=asyncio.Semaphore(10),
+        sem_jina=asyncio.Semaphore(1),
+        sem_openai=asyncio.Semaphore(1),
+    )
+
+    schools = [
+        School(name=f"Test HS {i}", district="", county="", city="", state="TX") for i in range(5)
+    ]
+    results = await asyncio.gather(*(resolve_for_school_async(cfg, s, lim) for s in schools))
+
+    assert all(r.url == "https://example.edu/staff" for r in results)
+    assert max_jina == 1
+    assert max_openai == 1
