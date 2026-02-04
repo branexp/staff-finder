@@ -13,11 +13,11 @@ The tool combines two powerful technologies:
 
 ## Features
 
-- 🚀 **Async Processing** — Processes multiple schools concurrently for speed
-- 🎯 **Intelligent Selection** — Uses OpenAI to identify the best staff directory page
-- 📊 **CSV Input/Output** — Easy to integrate with existing data workflows
-- 🔍 **Comprehensive Search** — Leverages Jina's search API for broad coverage
-- ⚙️ **Configurable** — Customize concurrency, API keys, and models
+- **Async processing** — processes multiple schools concurrently
+- **Intelligent selection** — uses OpenAI to pick the best staff directory URL
+- **CSV input/output** — fits into existing data workflows
+- **Comprehensive search** — uses Jina's search API
+- **Configurable** — concurrency, API keys, model selection, caching
 
 ## Installation
 
@@ -57,12 +57,37 @@ staff-finder run schools.csv \
   --verbose
 ```
 
-### Using Environment Variables
+### Config precedence
+
+Settings are loaded using precedence:
+
+1) CLI flags
+2) environment variables
+3) config file (`~/.config/staff-finder/config.toml`, then `~/.staff-finder.toml`)
+4) defaults
+
+### Using environment variables
 
 ```bash
 export JINA_API_KEY="your_jina_key"
 export OPENAI_API_KEY="your_openai_key"
+
+# Recommended prefixed vars (also supported):
+# export STAFF_FINDER_JINA_API_KEY="..."
+# export STAFF_FINDER_OPENAI_API_KEY="..."
+
 staff-finder run schools.csv
+```
+
+### Using a config file
+
+Create `~/.config/staff-finder/config.toml`:
+
+```toml
+jina_api_key = "..."
+openai_api_key = "..."
+openai_model = "gpt-5-mini"
+max_concurrent_schools = 5
 ```
 
 ## Input CSV Format
@@ -119,6 +144,8 @@ Required. Get your API key from [Jina AI](https://jina.ai/).
 # Run with example data
 export OPENAI_API_KEY="sk-..."
 export JINA_API_KEY="jina_..."
+
+# output defaults to: example_schools_with_urls.csv
 staff-finder run example_schools.csv -v
 
 ```

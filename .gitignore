@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Staff Finder outputs
+run.log
+.cache_jina/
+*_with_urls.csv
+*_with_staff_links.csv
+schools_with_staff_links.csv
+schools_with_urls.csv
