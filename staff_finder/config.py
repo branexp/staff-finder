@@ -13,7 +13,7 @@ from platformdirs import user_config_dir
 class Settings:
     # IO
     input_csv: str = "schools.csv"
-    output_csv: str = ""
+    output_csv: str = "schools_with_staff_links.csv"
     system_prompt_path: str = "system_prompt.md"
 
     # OpenAI
@@ -77,89 +77,61 @@ def _load_toml(path: pathlib.Path) -> dict[str, Any]:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except Exception as e:  # pragma: no cover
-        raise ConfigError(f"Failed to parse config TOML: {path}: {e}") from e
+        raise ConfigValidationError(f"Failed to parse config TOML: {path}: {e}") from e
     if not isinstance(data, dict):
         return {}
     return data
 
 
 def default_config_paths() -> list[pathlib.Path]:
+    # Precedence (lower → higher): XDG config then legacy homefile
     xdg = pathlib.Path(user_config_dir("staff-finder")) / "config.toml"
     legacy = pathlib.Path.home() / ".staff-finder.toml"
     return [xdg, legacy]
 
 
-def _coerce_bool(value: Any, *, name: str) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        return bool(value)
-    if isinstance(value, str):
-        v = value.strip().lower()
-        if v in {"true", "1", "yes", "on"}:
-            return True
-        if v in {"false", "0", "no", "off"}:
-            return False
-    raise ConfigError(f"{name} must be a boolean")
-
-
-def _coerce_int(value: Any, *, name: str) -> int:
-    try:
-        return int(value)
-    except Exception as e:
-        raise ConfigError(f"{name} must be an integer") from e
-
-
-def _coerce_float(value: Any, *, name: str) -> float:
-    try:
-        return float(value)
-    except Exception as e:
-        raise ConfigError(f"{name} must be a number") from e
-
-
-def _pick(*, explicit: Any, env: Any, file: Any) -> Any:
-    if explicit is not None:
-        return explicit
-    if env not in (None, ""):
-        return env
-    if file not in (None, ""):
-        return file
-    return None
+def _env(name: str) -> str | None:
+    v = os.getenv(name)
+    if v is None:
+        return None
+    v = v.strip()
+    return v if v != "" else None
 
 
 def load_settings(
     *,
+    # Special: override which config file(s) to load
+    config_path: pathlib.Path | None = None,
     # IO
     input_csv: str | None = None,
     output_csv: str | None = None,
     system_prompt_path: str | None = None,
-    # Keys
-    jina_api_key: str | None = None,
-    openai_api_key: str | None = None,
     # OpenAI
+    openai_api_key: str | None = None,
     openai_model: str | None = None,
     openai_verbosity: str | None = None,
     openai_reasoning_effort: str | None = None,
     openai_request_timeout: float | None = None,
     # Jina
+    jina_api_key: str | None = None,
     jina_base_url: str | None = None,
     jina_no_cache: bool | None = None,
     jina_request_timeout: float | None = None,
-    # Planner
+    # Planner / shortlist
     max_queries_per_school: int | None = None,
     candidates_for_selection: int | None = None,
     # Concurrency
     max_concurrent_schools: int | None = None,
     max_concurrent_jina: int | None = None,
     max_concurrent_openai: int | None = None,
-    # Pacing/checkpoint
+    # Pacing & checkpoint
     per_row_delay_sec: float | None = None,
     checkpoint_every: int | None = None,
     enable_resume: bool | None = None,
     # Cache
     enable_jina_cache: bool | None = None,
     cache_dir: str | pathlib.Path | None = None,
-    # Retry
+    # Retry settings
     max_retries: int | None = None,
     retry_initial_wait: float | None = None,
     retry_max_wait: float | None = None,
@@ -170,204 +142,227 @@ def load_settings(
 ) -> Settings:
     """Load settings using precedence:
 
-    1) explicit args (CLI)
+    1) explicit args (CLI flags)
     2) env vars
-    3) config file(s)
+    3) config TOML
     4) defaults
 
-    Config files (low → high precedence):
-    - ~/.config/staff-finder/config.toml
-    - ~/.staff-finder.toml
+    Env vars (preferred):
+      STAFF_FINDER_OPENAI_API_KEY, STAFF_FINDER_JINA_API_KEY, ...
+
+    Back-compat env vars (also supported):
+      OPENAI_API_KEY, JINA_API_KEY, OPENAI_MODEL, ...
     """
 
     file_cfg: dict[str, Any] = {}
-    for p in default_config_paths():
-        file_cfg.update(_load_toml(p))
+    if config_path is not None:
+        file_cfg.update(_load_toml(pathlib.Path(config_path)))
+    else:
+        for p in default_config_paths():
+            file_cfg.update(_load_toml(p))
 
     env_cfg: dict[str, Any] = {
         # IO
-        "input_csv": os.getenv("INPUT_CSV"),
-        "output_csv": os.getenv("OUTPUT_CSV"),
-        "system_prompt_path": os.getenv("SYSTEM_PROMPT_PATH"),
-        # Keys
-        "jina_api_key": os.getenv("JINA_API_KEY"),
-        "openai_api_key": os.getenv("OPENAI_API_KEY"),
+        "input_csv": _env("STAFF_FINDER_INPUT_CSV") or _env("INPUT_CSV"),
+        "output_csv": _env("STAFF_FINDER_OUTPUT_CSV") or _env("OUTPUT_CSV"),
+        "system_prompt_path": _env("STAFF_FINDER_SYSTEM_PROMPT_PATH")
+        or _env("SYSTEM_PROMPT_PATH"),
         # OpenAI
-        "openai_model": os.getenv("OPENAI_MODEL"),
-        "openai_verbosity": os.getenv("OPENAI_VERBOSITY"),
-        "openai_reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT"),
-        "openai_request_timeout": os.getenv("OPENAI_REQUEST_TIMEOUT"),
+        "openai_api_key": _env("STAFF_FINDER_OPENAI_API_KEY") or _env("OPENAI_API_KEY"),
+        "openai_model": _env("STAFF_FINDER_OPENAI_MODEL") or _env("OPENAI_MODEL"),
+        "openai_verbosity": _env("STAFF_FINDER_OPENAI_VERBOSITY") or _env("OPENAI_VERBOSITY"),
+        "openai_reasoning_effort": _env("STAFF_FINDER_OPENAI_REASONING_EFFORT")
+        or _env("OPENAI_REASONING_EFFORT"),
+        "openai_request_timeout": _env("STAFF_FINDER_OPENAI_REQUEST_TIMEOUT")
+        or _env("OPENAI_REQUEST_TIMEOUT"),
         # Jina
-        "jina_base_url": os.getenv("JINA_BASE_URL"),
-        "jina_no_cache": os.getenv("JINA_NO_CACHE"),
-        "jina_request_timeout": os.getenv("JINA_REQUEST_TIMEOUT"),
-        # Planner
-        "max_queries_per_school": os.getenv("MAX_QUERIES_PER_SCHOOL"),
-        "candidates_for_selection": os.getenv("CANDIDATES_FOR_SELECTION"),
+        "jina_api_key": _env("STAFF_FINDER_JINA_API_KEY") or _env("JINA_API_KEY"),
+        "jina_base_url": _env("STAFF_FINDER_JINA_BASE_URL") or _env("JINA_BASE_URL"),
+        "jina_no_cache": _env("STAFF_FINDER_JINA_NO_CACHE") or _env("JINA_NO_CACHE"),
+        "jina_request_timeout": _env("STAFF_FINDER_JINA_REQUEST_TIMEOUT")
+        or _env("JINA_REQUEST_TIMEOUT"),
+        # Planner / shortlist
+        "max_queries_per_school": _env("STAFF_FINDER_MAX_QUERIES_PER_SCHOOL")
+        or _env("MAX_QUERIES_PER_SCHOOL"),
+        "candidates_for_selection": _env("STAFF_FINDER_CANDIDATES_FOR_SELECTION")
+        or _env("CANDIDATES_FOR_SELECTION"),
         # Concurrency
-        "max_concurrent_schools": os.getenv("MAX_CONCURRENT_SCHOOLS"),
-        "max_concurrent_jina": os.getenv("MAX_CONCURRENT_JINA"),
-        "max_concurrent_openai": os.getenv("MAX_CONCURRENT_OPENAI"),
-        # Pacing/checkpoint
-        "per_row_delay_sec": os.getenv("PER_ROW_DELAY_SEC"),
-        "checkpoint_every": os.getenv("CHECKPOINT_EVERY"),
-        "enable_resume": os.getenv("ENABLE_RESUME"),
+        "max_concurrent_schools": _env("STAFF_FINDER_MAX_CONCURRENT_SCHOOLS")
+        or _env("MAX_CONCURRENT_SCHOOLS"),
+        "max_concurrent_jina": _env("STAFF_FINDER_MAX_CONCURRENT_JINA")
+        or _env("MAX_CONCURRENT_JINA"),
+        "max_concurrent_openai": _env("STAFF_FINDER_MAX_CONCURRENT_OPENAI")
+        or _env("MAX_CONCURRENT_OPENAI"),
+        # Pacing & checkpoint
+        "per_row_delay_sec": _env("STAFF_FINDER_PER_ROW_DELAY_SEC") or _env("PER_ROW_DELAY_SEC"),
+        "checkpoint_every": _env("STAFF_FINDER_CHECKPOINT_EVERY") or _env("CHECKPOINT_EVERY"),
+        "enable_resume": _env("STAFF_FINDER_ENABLE_RESUME") or _env("ENABLE_RESUME"),
         # Cache
-        "enable_jina_cache": os.getenv("ENABLE_JINA_CACHE"),
-        "cache_dir": os.getenv("CACHE_DIR"),
-        # Retry
-        "max_retries": os.getenv("MAX_RETRIES"),
-        "retry_initial_wait": os.getenv("RETRY_INITIAL_WAIT"),
-        "retry_max_wait": os.getenv("RETRY_MAX_WAIT"),
+        "enable_jina_cache": _env("STAFF_FINDER_ENABLE_JINA_CACHE") or _env("ENABLE_JINA_CACHE"),
+        "cache_dir": _env("STAFF_FINDER_CACHE_DIR") or _env("CACHE_DIR"),
+        # Retry settings
+        "max_retries": _env("STAFF_FINDER_MAX_RETRIES") or _env("MAX_RETRIES"),
+        "retry_initial_wait": _env("STAFF_FINDER_RETRY_INITIAL_WAIT")
+        or _env("RETRY_INITIAL_WAIT"),
+        "retry_max_wait": _env("STAFF_FINDER_RETRY_MAX_WAIT") or _env("RETRY_MAX_WAIT"),
         # Content truncation
-        "max_content_chars": os.getenv("MAX_CONTENT_CHARS"),
+        "max_content_chars": _env("STAFF_FINDER_MAX_CONTENT_CHARS") or _env("MAX_CONTENT_CHARS"),
         # Logging
-        "log_level": os.getenv("LOG_LEVEL"),
+        "log_level": _env("STAFF_FINDER_LOG_LEVEL") or _env("LOG_LEVEL"),
     }
 
     def pick(key: str, explicit_value: Any) -> Any:
-        return _pick(explicit=explicit_value, env=env_cfg.get(key), file=file_cfg.get(key))
+        if explicit_value is not None:
+            return explicit_value
+        if env_cfg.get(key) not in (None, ""):
+            return env_cfg[key]
+        if key in file_cfg and file_cfg[key] not in (None, ""):
+            return file_cfg[key]
+        return None
 
-    # Start with defaults, then fill.
-    cfg = Settings()
+    def to_int(key: str, v: Any, default: int) -> int:
+        if v is None:
+            return default
+        try:
+            return int(v)
+        except Exception as e:
+            raise ConfigValidationError(f"{key} must be an integer") from e
 
-    cfg.input_csv = str(pick("input_csv", input_csv) or cfg.input_csv)
-    out = pick("output_csv", output_csv)
-    if out is None:
-        # If not provided via CLI/env/config, derive from input.
-        in_path = pathlib.Path(cfg.input_csv)
-        cfg.output_csv = str(in_path.with_name(in_path.stem + "_with_urls" + in_path.suffix))
-    else:
-        cfg.output_csv = str(out)
-    cfg.system_prompt_path = str(
-        pick("system_prompt_path", system_prompt_path) or cfg.system_prompt_path
+    def to_float(key: str, v: Any, default: float) -> float:
+        if v is None:
+            return default
+        try:
+            return float(v)
+        except Exception as e:
+            raise ConfigValidationError(f"{key} must be a number") from e
+
+    def to_bool(key: str, v: Any, default: bool) -> bool:
+        if v is None:
+            return default
+        if isinstance(v, bool):
+            return v
+        s = str(v).strip().lower()
+        if s in ("true", "1", "yes", "on"):
+            return True
+        if s in ("false", "0", "no", "off"):
+            return False
+        raise ConfigValidationError(f"{key} must be a boolean (true/false)")
+
+    def to_path(key: str, v: Any, default: pathlib.Path) -> pathlib.Path:
+        if v is None:
+            return default
+        try:
+            return pathlib.Path(str(v))
+        except Exception as e:
+            raise ConfigValidationError(f"{key} must be a path") from e
+
+    cfg = Settings(
+        input_csv=str(pick("input_csv", input_csv) or Settings.input_csv),
+        output_csv=str(pick("output_csv", output_csv) or Settings.output_csv),
+        system_prompt_path=str(
+            pick("system_prompt_path", system_prompt_path) or Settings.system_prompt_path
+        ),
+        openai_api_key=pick("openai_api_key", openai_api_key),
+        openai_model=str(pick("openai_model", openai_model) or Settings.openai_model),
+        openai_verbosity=str(pick("openai_verbosity", openai_verbosity) or Settings.openai_verbosity),
+        openai_reasoning_effort=str(
+            pick("openai_reasoning_effort", openai_reasoning_effort)
+            or Settings.openai_reasoning_effort
+        ),
+        openai_request_timeout=to_float(
+            "openai_request_timeout",
+            pick("openai_request_timeout", openai_request_timeout),
+            Settings.openai_request_timeout,
+        ),
+        jina_api_key=pick("jina_api_key", jina_api_key),
+        jina_base_url=str(pick("jina_base_url", jina_base_url) or Settings.jina_base_url).rstrip("/"),
+        jina_no_cache=to_bool("jina_no_cache", pick("jina_no_cache", jina_no_cache), Settings.jina_no_cache),
+        jina_request_timeout=to_float(
+            "jina_request_timeout",
+            pick("jina_request_timeout", jina_request_timeout),
+            Settings.jina_request_timeout,
+        ),
+        max_queries_per_school=to_int(
+            "max_queries_per_school",
+            pick("max_queries_per_school", max_queries_per_school),
+            Settings.max_queries_per_school,
+        ),
+        candidates_for_selection=to_int(
+            "candidates_for_selection",
+            pick("candidates_for_selection", candidates_for_selection),
+            Settings.candidates_for_selection,
+        ),
+        max_concurrent_schools=to_int(
+            "max_concurrent_schools",
+            pick("max_concurrent_schools", max_concurrent_schools),
+            Settings.max_concurrent_schools,
+        ),
+        max_concurrent_jina=to_int(
+            "max_concurrent_jina",
+            pick("max_concurrent_jina", max_concurrent_jina),
+            Settings.max_concurrent_jina,
+        ),
+        max_concurrent_openai=to_int(
+            "max_concurrent_openai",
+            pick("max_concurrent_openai", max_concurrent_openai),
+            Settings.max_concurrent_openai,
+        ),
+        per_row_delay_sec=to_float(
+            "per_row_delay_sec",
+            pick("per_row_delay_sec", per_row_delay_sec),
+            Settings.per_row_delay_sec,
+        ),
+        checkpoint_every=to_int(
+            "checkpoint_every",
+            pick("checkpoint_every", checkpoint_every),
+            Settings.checkpoint_every,
+        ),
+        enable_resume=to_bool("enable_resume", pick("enable_resume", enable_resume), Settings.enable_resume),
+        enable_jina_cache=to_bool(
+            "enable_jina_cache",
+            pick("enable_jina_cache", enable_jina_cache),
+            Settings.enable_jina_cache,
+        ),
+        cache_dir=to_path("cache_dir", pick("cache_dir", cache_dir), Settings.cache_dir),
+        max_retries=to_int("max_retries", pick("max_retries", max_retries), Settings.max_retries),
+        retry_initial_wait=to_float(
+            "retry_initial_wait",
+            pick("retry_initial_wait", retry_initial_wait),
+            Settings.retry_initial_wait,
+        ),
+        retry_max_wait=to_float(
+            "retry_max_wait",
+            pick("retry_max_wait", retry_max_wait),
+            Settings.retry_max_wait,
+        ),
+        max_content_chars=to_int(
+            "max_content_chars",
+            pick("max_content_chars", max_content_chars),
+            Settings.max_content_chars,
+        ),
+        log_level=str(pick("log_level", log_level) or Settings.log_level),
     )
 
-    cfg.jina_api_key = pick("jina_api_key", jina_api_key) or cfg.jina_api_key
-    cfg.openai_api_key = pick("openai_api_key", openai_api_key) or cfg.openai_api_key
-
-    cfg.openai_model = str(pick("openai_model", openai_model) or cfg.openai_model)
-    cfg.openai_verbosity = str(pick("openai_verbosity", openai_verbosity) or cfg.openai_verbosity)
-    cfg.openai_reasoning_effort = str(
-        pick("openai_reasoning_effort", openai_reasoning_effort) or cfg.openai_reasoning_effort
-    )
-
-    ort = pick("openai_request_timeout", openai_request_timeout)
-    if ort is not None:
-        cfg.openai_request_timeout = _coerce_float(ort, name="openai_request_timeout")
-
-    cfg.jina_base_url = str(pick("jina_base_url", jina_base_url) or cfg.jina_base_url).rstrip("/")
-
-    jnc = pick("jina_no_cache", jina_no_cache)
-    if jnc is not None:
-        cfg.jina_no_cache = _coerce_bool(jnc, name="jina_no_cache")
-
-    jrt = pick("jina_request_timeout", jina_request_timeout)
-    if jrt is not None:
-        cfg.jina_request_timeout = _coerce_float(jrt, name="jina_request_timeout")
-
-    mq = pick("max_queries_per_school", max_queries_per_school)
-    if mq is not None:
-        cfg.max_queries_per_school = _coerce_int(mq, name="max_queries_per_school")
-
-    cfs = pick("candidates_for_selection", candidates_for_selection)
-    if cfs is not None:
-        cfg.candidates_for_selection = _coerce_int(cfs, name="candidates_for_selection")
-
-    mcs = pick("max_concurrent_schools", max_concurrent_schools)
-    if mcs is not None:
-        cfg.max_concurrent_schools = _coerce_int(mcs, name="max_concurrent_schools")
-
-    mcj = pick("max_concurrent_jina", max_concurrent_jina)
-    if mcj is not None:
-        cfg.max_concurrent_jina = _coerce_int(mcj, name="max_concurrent_jina")
-
-    mco = pick("max_concurrent_openai", max_concurrent_openai)
-    if mco is not None:
-        cfg.max_concurrent_openai = _coerce_int(mco, name="max_concurrent_openai")
-
-    prd = pick("per_row_delay_sec", per_row_delay_sec)
-    if prd is not None:
-        cfg.per_row_delay_sec = _coerce_float(prd, name="per_row_delay_sec")
-
-    ce = pick("checkpoint_every", checkpoint_every)
-    if ce is not None:
-        cfg.checkpoint_every = _coerce_int(ce, name="checkpoint_every")
-
-    er = pick("enable_resume", enable_resume)
-    if er is not None:
-        cfg.enable_resume = _coerce_bool(er, name="enable_resume")
-
-    ejc = pick("enable_jina_cache", enable_jina_cache)
-    if ejc is not None:
-        cfg.enable_jina_cache = _coerce_bool(ejc, name="enable_jina_cache")
-
-    cd = pick("cache_dir", cache_dir)
-    if cd is not None:
-        cfg.cache_dir = pathlib.Path(str(cd))
-
-    mr = pick("max_retries", max_retries)
-    if mr is not None:
-        cfg.max_retries = _coerce_int(mr, name="max_retries")
-
-    riw = pick("retry_initial_wait", retry_initial_wait)
-    if riw is not None:
-        cfg.retry_initial_wait = _coerce_float(riw, name="retry_initial_wait")
-
-    rmw = pick("retry_max_wait", retry_max_wait)
-    if rmw is not None:
-        cfg.retry_max_wait = _coerce_float(rmw, name="retry_max_wait")
-
-    mcc = pick("max_content_chars", max_content_chars)
-    if mcc is not None:
-        cfg.max_content_chars = _coerce_int(mcc, name="max_content_chars")
-
-    cfg.log_level = str(pick("log_level", log_level) or cfg.log_level)
-
-    validate_settings(cfg)
     return cfg
 
 
 def validate_settings(cfg: Settings) -> None:
-    # Path validation
-    if not cfg.input_csv or not cfg.input_csv.strip():
-        raise ConfigValidationError("input_csv cannot be empty")
-    input_path = pathlib.Path(cfg.input_csv)
-    if not input_path.exists():
-        raise ConfigValidationError(f"input_csv not found: {cfg.input_csv}")
+    # Enum-ish settings
+    if cfg.log_level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        raise ConfigValidationError("log_level must be one of DEBUG|INFO|WARNING|ERROR|CRITICAL")
+    if cfg.openai_verbosity.lower() not in ("low", "medium", "high"):
+        raise ConfigValidationError("openai_verbosity must be one of low|medium|high")
+    if cfg.openai_reasoning_effort.lower() not in ("low", "medium", "high"):
+        raise ConfigValidationError("openai_reasoning_effort must be one of low|medium|high")
 
-    if not cfg.output_csv or not cfg.output_csv.strip():
-        raise ConfigValidationError("output_csv cannot be empty")
-    output_path = pathlib.Path(cfg.output_csv)
-    # Only validate parent directory existence; the file itself need not exist yet.
-    if output_path.parent != pathlib.Path(".") and not output_path.parent.exists():
-        raise ConfigValidationError(f"output directory does not exist: {output_path.parent}")
-
-    if not cfg.system_prompt_path or not cfg.system_prompt_path.strip():
-        raise ConfigValidationError("system_prompt_path cannot be empty")
-    prompt_path = pathlib.Path(cfg.system_prompt_path)
-    if not prompt_path.exists():
-        raise ConfigValidationError(f"system_prompt_path not found: {cfg.system_prompt_path}")
-
-    # Auth / API keys
-    if not cfg.jina_api_key:
-        raise ConfigAuthError("Missing JINA_API_KEY")
-    if not cfg.openai_api_key:
-        raise ConfigAuthError("Missing OPENAI_API_KEY")
-
-    # Basic value validation
-    if not cfg.openai_model or not cfg.openai_model.strip():
-        raise ConfigValidationError("OPENAI_MODEL cannot be empty")
-
+    # Numeric ranges
     if cfg.openai_request_timeout <= 0:
         raise ConfigValidationError("openai_request_timeout must be > 0")
     if cfg.jina_request_timeout <= 0:
         raise ConfigValidationError("jina_request_timeout must be > 0")
 
-    if cfg.max_queries_per_school < 1:
-        raise ConfigValidationError("max_queries_per_school must be >= 1")
-    if cfg.candidates_for_selection < 1:
-        raise ConfigValidationError("candidates_for_selection must be >= 1")
+    if cfg.checkpoint_every < 1:
+        raise ConfigValidationError("checkpoint_every must be >= 1")
 
     if cfg.max_concurrent_schools < 1:
         raise ConfigValidationError("max_concurrent_schools must be >= 1")
@@ -376,10 +371,13 @@ def validate_settings(cfg: Settings) -> None:
     if cfg.max_concurrent_openai < 1:
         raise ConfigValidationError("max_concurrent_openai must be >= 1")
 
+    if cfg.max_queries_per_school < 1:
+        raise ConfigValidationError("max_queries_per_school must be >= 1")
+    if cfg.candidates_for_selection < 1:
+        raise ConfigValidationError("candidates_for_selection must be >= 1")
+
     if cfg.per_row_delay_sec < 0:
         raise ConfigValidationError("per_row_delay_sec must be >= 0")
-    if cfg.checkpoint_every < 1:
-        raise ConfigValidationError("checkpoint_every must be >= 1")
 
     if cfg.max_retries < 0:
         raise ConfigValidationError("max_retries must be >= 0")
@@ -393,10 +391,17 @@ def validate_settings(cfg: Settings) -> None:
     if cfg.max_content_chars < 1:
         raise ConfigValidationError("max_content_chars must be >= 1")
 
-    if cfg.openai_verbosity.lower() not in {"low", "medium", "high"}:
-        raise ConfigValidationError("OPENAI_VERBOSITY must be one of: low, medium, high")
-    if cfg.openai_reasoning_effort.lower() not in {"low", "medium", "high"}:
-        raise ConfigValidationError("OPENAI_REASONING_EFFORT must be one of: low, medium, high")
 
-    if cfg.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-        raise ConfigValidationError("LOG_LEVEL must be DEBUG|INFO|WARNING|ERROR|CRITICAL")
+def require_keys(cfg: Settings) -> None:
+    if not cfg.jina_api_key:
+        raise ConfigAuthError(
+            "Missing Jina API key. Set JINA_API_KEY (or STAFF_FINDER_JINA_API_KEY) "
+            "or add jina_api_key to config.toml."
+        )
+    if not cfg.openai_api_key:
+        raise ConfigAuthError(
+            "Missing OpenAI API key. Set OPENAI_API_KEY (or STAFF_FINDER_OPENAI_API_KEY) "
+            "or add openai_api_key to config.toml."
+        )
+
+    validate_settings(cfg)

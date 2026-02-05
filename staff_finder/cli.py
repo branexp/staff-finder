@@ -11,13 +11,7 @@ import typer
 from dotenv import load_dotenv  # type: ignore
 from tqdm import tqdm  # type: ignore
 
-from .config import (
-    ConfigAuthError,
-    ConfigError,
-    ConfigValidationError,
-    Settings,
-    load_settings,
-)
+from .config import ConfigAuthError, ConfigError, ConfigValidationError, Settings, load_settings, require_keys
 from .io_csv import ensure_output_columns, load_df, save_df
 from .limiters import Limiters
 from .logging_setup import setup_logging
@@ -32,6 +26,7 @@ def main() -> None:
     """Staff Finder CLI."""
     return
 
+
 NULLISH = {"", "nan", "none", "not_found", "error_not_found"}
 
 
@@ -43,7 +38,9 @@ class ExitCode:
     UNEXPECTED = 5
 
 
-# NOTE: Default output path derivation lives in config.load_settings().
+def _default_output_path(input_csv: Path) -> Path:
+    return input_csv.with_name(input_csv.stem + "_with_urls" + input_csv.suffix)
+
 
 def _redact_secret(value: str | None) -> str:
     if not value:
@@ -65,7 +62,7 @@ async def _worker(
     async with lim.sem_schools:
         try:
             school = map_headers(row)
-            result = await resolve_for_school_async(cfg, school)
+            result = await resolve_for_school_async(cfg, school, lim)
             results[idx] = (result.url, result.confidence or "", result.reasoning)
         except Exception as e:
             results[idx] = ("ERROR_NOT_FOUND", "", str(e))
@@ -96,7 +93,7 @@ async def run_async(cfg: Settings, *, show_progress: bool) -> dict[str, Any]:
         console=(cfg.log_level.upper() == "DEBUG"),
         log_level=cfg.log_level,
     )
-    # cfg is validated by load_settings() / validate_settings().
+    require_keys(cfg)
 
     input_path = Path(cfg.input_csv)
     output_path = Path(cfg.output_csv)
@@ -193,26 +190,35 @@ def run(
         dir_okay=False,
         help="Output CSV path (default: <input>_with_urls.csv).",
     ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        dir_okay=False,
+        help=(
+            "Optional config.toml path. Default search: "
+            "~/.config/staff-finder/config.toml then ~/.staff-finder.toml."
+        ),
+    ),
     jina_api_key: str | None = typer.Option(
         None,
         "--jina-api-key",
-        help="Jina API key (required; env: JINA_API_KEY).",
+        help="Jina API key (required; can also come from env/config).",
     ),
     openai_api_key: str | None = typer.Option(
         None,
         "--openai-api-key",
-        help="OpenAI API key (required; env: OPENAI_API_KEY).",
+        help="OpenAI API key (required; can also come from env/config).",
     ),
     openai_model: str | None = typer.Option(
         None,
         "--openai-model",
-        help="OpenAI model to use (default: gpt-4o-mini; env: OPENAI_MODEL).",
+        help="OpenAI model to use (default: gpt-4o-mini; can also come from env/config).",
     ),
     max_concurrent: int | None = typer.Option(
         None,
         "--max-concurrent",
         min=1,
-        help="Max concurrent schools (default: 5).",
+        help="Max concurrent schools (default: 5; can also come from env/config).",
     ),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable verbose logging."),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
@@ -220,13 +226,17 @@ def run(
 ) -> None:
     """Discover staff directory URLs for schools in a CSV."""
 
-    # Optional local .env support (for development). This does not override real env vars.
+    # Optional local dev convenience: load .env into env vars.
+    # Precedence is still: flags -> env -> config.toml -> defaults.
     load_dotenv(override=False)
+
+    output_csv = str(output) if output else str(_default_output_path(input_csv))
 
     try:
         cfg = load_settings(
+            config_path=config,
             input_csv=str(input_csv),
-            output_csv=str(output) if output else None,
+            output_csv=output_csv,
             jina_api_key=jina_api_key,
             openai_api_key=openai_api_key,
             openai_model=openai_model,
@@ -249,15 +259,22 @@ def run(
         typer.echo(f"- jina_api_key={_redact_secret(cfg.jina_api_key)}")
         typer.echo(f"- openai_model={cfg.openai_model}")
         typer.echo(f"- max_concurrent_schools={cfg.max_concurrent_schools}")
+        typer.echo(f"- config={str(config) if config else '(auto)'}")
 
     try:
         summary = asyncio.run(run_async(cfg, show_progress=not json_output))
     except FileNotFoundError as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.VALIDATION) from e
-    except RuntimeError as e:
+    except ConfigAuthError as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.API_OR_AUTH) from e
+    except ConfigValidationError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
+    except ConfigError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
     except (httpx.ReadTimeout, httpx.ConnectError) as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.NETWORK) from e

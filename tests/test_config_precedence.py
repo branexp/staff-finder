@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from staff_finder import load_settings
-from staff_finder.config import ConfigAuthError, ConfigValidationError
+from staff_finder.config import ConfigAuthError, ConfigValidationError, require_keys
 
 
 def _write_minimal_input(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -83,27 +83,31 @@ def test_load_settings_default_model_when_not_set(monkeypatch: pytest.MonkeyPatc
     assert cfg.openai_model == "gpt-4o-mini"
 
 
-def test_load_settings_missing_keys_is_auth_error(tmp_path: Path):
+def test_require_keys_missing_keys_is_auth_error(tmp_path: Path):
     input_csv, prompt, output_csv = _write_minimal_input(tmp_path)
 
+    cfg = load_settings(
+        input_csv=str(input_csv),
+        output_csv=str(output_csv),
+        system_prompt_path=str(prompt),
+    )
+
     with pytest.raises(ConfigAuthError):
-        load_settings(
-            input_csv=str(input_csv),
-            output_csv=str(output_csv),
-            system_prompt_path=str(prompt),
-        )
+        require_keys(cfg)
 
 
 def test_validate_settings_retry_wait_relationship(tmp_path: Path):
     input_csv, prompt, output_csv = _write_minimal_input(tmp_path)
 
+    cfg = load_settings(
+        input_csv=str(input_csv),
+        output_csv=str(output_csv),
+        system_prompt_path=str(prompt),
+        jina_api_key="jina",
+        openai_api_key="openai",
+        retry_initial_wait=10,
+        retry_max_wait=1,
+    )
+
     with pytest.raises(ConfigValidationError):
-        load_settings(
-            input_csv=str(input_csv),
-            output_csv=str(output_csv),
-            system_prompt_path=str(prompt),
-            jina_api_key="jina",
-            openai_api_key="openai",
-            retry_initial_wait=10,
-            retry_max_wait=1,
-        )
+        require_keys(cfg)

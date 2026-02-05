@@ -13,11 +13,11 @@ The tool combines two powerful technologies:
 
 ## Features
 
-- 🚀 **Async Processing** — Processes multiple schools concurrently for speed
-- 🎯 **Intelligent Selection** — Uses OpenAI to identify the best staff directory page
-- 📊 **CSV Input/Output** — Easy to integrate with existing data workflows
-- 🔍 **Comprehensive Search** — Leverages Jina's search API for broad coverage
-- ⚙️ **Configurable** — Customize concurrency, API keys, and models
+- **Async processing** — processes multiple schools concurrently
+- **Intelligent selection** — uses OpenAI to pick the best staff directory URL
+- **CSV input/output** — fits into existing data workflows
+- **Comprehensive search** — uses Jina's search API
+- **Configurable** — concurrency, API keys, model selection, caching
 
 ## Installation
 
@@ -57,9 +57,16 @@ staff-finder run schools.csv \
   --verbose
 ```
 
-### Using Environment Variables
+### Config precedence
 
-Staff-Finder reads config from environment variables (and optionally a local `.env` file for development).
+Settings are loaded using precedence:
+
+1) CLI flags
+2) environment variables
+3) config file (`~/.config/staff-finder/config.toml`, then `~/.staff-finder.toml`)
+4) defaults
+
+### Using environment variables
 
 Minimum required:
 
@@ -73,6 +80,14 @@ export OPENAI_MODEL="gpt-4o-mini"
 staff-finder run schools.csv
 ```
 
+Preferred (namespaced) env vars are also supported:
+
+```bash
+export STAFF_FINDER_JINA_API_KEY="your_jina_key"
+export STAFF_FINDER_OPENAI_API_KEY="your_openai_key"
+export STAFF_FINDER_OPENAI_MODEL="gpt-4o-mini"
+```
+
 Optional local `.env` file (loaded with `override=False`, so real environment variables still win):
 
 ```dotenv
@@ -81,29 +96,19 @@ OPENAI_API_KEY=your_openai_key
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-Other supported environment variables include `INPUT_CSV`, `OUTPUT_CSV`, `SYSTEM_PROMPT_PATH`, `MAX_CONCURRENT_SCHOOLS`, plus OpenAI/Jina tuning knobs. See `.env.example` for the full list.
+For the full list of supported environment variables, see `.env.example`.
 
-## Configuration
+### Using a config file
 
-Config precedence:
-1. CLI flags
-2. environment variables (plus optional local `.env` for development)
-3. config file
-4. defaults
-
-Config file locations (low → high precedence):
-- `~/.config/staff-finder/config.toml`
-- `~/.staff-finder.toml`
-
-Example `config.toml`:
+Create `~/.config/staff-finder/config.toml`:
 
 ```toml
-openai_model = "gpt-4o-mini"
-max_concurrent_schools = 5
-
 # Prefer env vars for API keys. If you do store them here, chmod 600.
 # openai_api_key = "..."
 # jina_api_key = "..."
+
+openai_model = "gpt-4o-mini"
+max_concurrent_schools = 5
 ```
 
 ## Input CSV Format
@@ -140,8 +145,8 @@ If your input already contains a URL column (e.g. `staff_directory_url`), Staff-
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--output, -o` | Output CSV file path | `{input}_with_urls.csv` |
-| `--jina-api-key` | Jina API key | From `JINA_API_KEY` env var |
-| `--openai-api-key` | OpenAI API key (required) | From `OPENAI_API_KEY` env var |
+| `--jina-api-key` | Jina API key | From env/config |
+| `--openai-api-key` | OpenAI API key (required) | From env/config |
 | `--openai-model` | OpenAI model to use | `gpt-4o-mini` |
 | `--max-concurrent` | Max concurrent requests | `5` |
 | `--verbose, -v` | Enable verbose logging | `False` |
@@ -159,6 +164,9 @@ Required. Get your API key from [Jina AI](https://jina.ai/).
 ```bash
 # Run with example data
 export OPENAI_API_KEY="sk-..."
+export JINA_API_KEY="jina_..."
+
+# output defaults to: example_schools_with_urls.csv
 staff-finder run example_schools.csv -v
 ```
 
