@@ -59,11 +59,29 @@ staff-finder run schools.csv \
 
 ### Using Environment Variables
 
+Staff-Finder reads config from environment variables (and optionally a local `.env` file for development).
+
+Minimum required:
+
 ```bash
 export JINA_API_KEY="your_jina_key"
 export OPENAI_API_KEY="your_openai_key"
+
+# Optional (overrides the default model):
+export OPENAI_MODEL="gpt-4o-mini"
+
 staff-finder run schools.csv
 ```
+
+Optional local `.env` file (loaded with `override=False`, so real environment variables still win):
+
+```dotenv
+JINA_API_KEY=your_jina_key
+OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Other supported environment variables include `INPUT_CSV`, `OUTPUT_CSV`, `SYSTEM_PROMPT_PATH`, `MAX_CONCURRENT_SCHOOLS`, plus OpenAI/Jina tuning knobs. See `.env.example` for the full list.
 
 ## Configuration
 
