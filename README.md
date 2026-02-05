@@ -52,7 +52,7 @@ staff-finder run schools.csv \
   --output schools_with_urls.csv \
   --jina-api-key YOUR_JINA_KEY \
   --openai-api-key YOUR_OPENAI_KEY \
-  --openai-model gpt-5-mini \
+  --openai-model gpt-4o-mini \
   --max-concurrent 5 \
   --verbose
 ```
@@ -80,7 +80,7 @@ Config file locations (low → high precedence):
 Example `config.toml`:
 
 ```toml
-openai_model = "gpt-5-mini"
+openai_model = "gpt-4o-mini"
 max_concurrent_schools = 5
 
 # Prefer env vars for API keys. If you do store them here, chmod 600.
@@ -124,7 +124,7 @@ If your input already contains a URL column (e.g. `staff_directory_url`), Staff-
 | `--output, -o` | Output CSV file path | `{input}_with_urls.csv` |
 | `--jina-api-key` | Jina API key | From `JINA_API_KEY` env var |
 | `--openai-api-key` | OpenAI API key (required) | From `OPENAI_API_KEY` env var |
-| `--openai-model` | OpenAI model to use | `gpt-5-mini` |
+| `--openai-model` | OpenAI model to use | `gpt-4o-mini` |
 | `--max-concurrent` | Max concurrent requests | `5` |
 | `--verbose, -v` | Enable verbose logging | `False` |
 

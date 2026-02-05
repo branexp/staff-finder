@@ -18,7 +18,7 @@ class Settings:
 
     # OpenAI
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-4o-mini"
     openai_verbosity: str = "low"
     openai_reasoning_effort: str = "low"
     openai_request_timeout: float = 30.0
@@ -60,6 +60,14 @@ class Settings:
 
 
 class ConfigError(RuntimeError):
+    pass
+
+
+class ConfigValidationError(ConfigError):
+    pass
+
+
+class ConfigAuthError(ConfigError):
     pass
 
 
@@ -321,25 +329,74 @@ def load_settings(
 
 
 def validate_settings(cfg: Settings) -> None:
+    # Path validation
+    if not cfg.input_csv or not cfg.input_csv.strip():
+        raise ConfigValidationError("input_csv cannot be empty")
+    input_path = pathlib.Path(cfg.input_csv)
+    if not input_path.exists():
+        raise ConfigValidationError(f"input_csv not found: {cfg.input_csv}")
+
+    if not cfg.output_csv or not cfg.output_csv.strip():
+        raise ConfigValidationError("output_csv cannot be empty")
+    output_path = pathlib.Path(cfg.output_csv)
+    # Only validate parent directory existence; the file itself need not exist yet.
+    if output_path.parent != pathlib.Path(".") and not output_path.parent.exists():
+        raise ConfigValidationError(f"output directory does not exist: {output_path.parent}")
+
+    if not cfg.system_prompt_path or not cfg.system_prompt_path.strip():
+        raise ConfigValidationError("system_prompt_path cannot be empty")
+    prompt_path = pathlib.Path(cfg.system_prompt_path)
+    if not prompt_path.exists():
+        raise ConfigValidationError(f"system_prompt_path not found: {cfg.system_prompt_path}")
+
+    # Auth / API keys
     if not cfg.jina_api_key:
-        raise ConfigError("Missing JINA_API_KEY")
+        raise ConfigAuthError("Missing JINA_API_KEY")
     if not cfg.openai_api_key:
-        raise ConfigError("Missing OPENAI_API_KEY")
+        raise ConfigAuthError("Missing OPENAI_API_KEY")
+
+    # Basic value validation
+    if not cfg.openai_model or not cfg.openai_model.strip():
+        raise ConfigValidationError("OPENAI_MODEL cannot be empty")
+
+    if cfg.openai_request_timeout <= 0:
+        raise ConfigValidationError("openai_request_timeout must be > 0")
+    if cfg.jina_request_timeout <= 0:
+        raise ConfigValidationError("jina_request_timeout must be > 0")
+
+    if cfg.max_queries_per_school < 1:
+        raise ConfigValidationError("max_queries_per_school must be >= 1")
+    if cfg.candidates_for_selection < 1:
+        raise ConfigValidationError("candidates_for_selection must be >= 1")
 
     if cfg.max_concurrent_schools < 1:
-        raise ConfigError("max_concurrent_schools must be >= 1")
+        raise ConfigValidationError("max_concurrent_schools must be >= 1")
     if cfg.max_concurrent_jina < 1:
-        raise ConfigError("max_concurrent_jina must be >= 1")
+        raise ConfigValidationError("max_concurrent_jina must be >= 1")
     if cfg.max_concurrent_openai < 1:
-        raise ConfigError("max_concurrent_openai must be >= 1")
+        raise ConfigValidationError("max_concurrent_openai must be >= 1")
 
+    if cfg.per_row_delay_sec < 0:
+        raise ConfigValidationError("per_row_delay_sec must be >= 0")
     if cfg.checkpoint_every < 1:
-        raise ConfigError("checkpoint_every must be >= 1")
+        raise ConfigValidationError("checkpoint_every must be >= 1")
+
+    if cfg.max_retries < 0:
+        raise ConfigValidationError("max_retries must be >= 0")
+    if cfg.retry_initial_wait < 0:
+        raise ConfigValidationError("retry_initial_wait must be >= 0")
+    if cfg.retry_max_wait < 0:
+        raise ConfigValidationError("retry_max_wait must be >= 0")
+    if cfg.retry_initial_wait > cfg.retry_max_wait:
+        raise ConfigValidationError("retry_initial_wait must be <= retry_max_wait")
+
+    if cfg.max_content_chars < 1:
+        raise ConfigValidationError("max_content_chars must be >= 1")
 
     if cfg.openai_verbosity.lower() not in {"low", "medium", "high"}:
-        raise ConfigError("OPENAI_VERBOSITY must be one of: low, medium, high")
+        raise ConfigValidationError("OPENAI_VERBOSITY must be one of: low, medium, high")
     if cfg.openai_reasoning_effort.lower() not in {"low", "medium", "high"}:
-        raise ConfigError("OPENAI_REASONING_EFFORT must be one of: low, medium, high")
+        raise ConfigValidationError("OPENAI_REASONING_EFFORT must be one of: low, medium, high")
 
     if cfg.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-        raise ConfigError("LOG_LEVEL must be DEBUG|INFO|WARNING|ERROR|CRITICAL")
+        raise ConfigValidationError("LOG_LEVEL must be DEBUG|INFO|WARNING|ERROR|CRITICAL")
