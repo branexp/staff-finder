@@ -18,7 +18,7 @@ class Settings:
 
     # OpenAI
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-4o-mini"
     openai_verbosity: str = "low"
     openai_reasoning_effort: str = "low"
     openai_request_timeout: float = 30.0
@@ -63,13 +63,21 @@ class ConfigError(RuntimeError):
     pass
 
 
+class ConfigValidationError(ConfigError):
+    pass
+
+
+class ConfigAuthError(ConfigError):
+    pass
+
+
 def _load_toml(path: pathlib.Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except Exception as e:  # pragma: no cover
-        raise ConfigError(f"Failed to parse config TOML: {path}: {e}") from e
+        raise ConfigValidationError(f"Failed to parse config TOML: {path}: {e}") from e
     if not isinstance(data, dict):
         return {}
     return data
@@ -157,7 +165,8 @@ def load_settings(
         # IO
         "input_csv": _env("STAFF_FINDER_INPUT_CSV") or _env("INPUT_CSV"),
         "output_csv": _env("STAFF_FINDER_OUTPUT_CSV") or _env("OUTPUT_CSV"),
-        "system_prompt_path": _env("STAFF_FINDER_SYSTEM_PROMPT_PATH") or _env("SYSTEM_PROMPT_PATH"),
+        "system_prompt_path": _env("STAFF_FINDER_SYSTEM_PROMPT_PATH")
+        or _env("SYSTEM_PROMPT_PATH"),
         # OpenAI
         "openai_api_key": _env("STAFF_FINDER_OPENAI_API_KEY") or _env("OPENAI_API_KEY"),
         "openai_model": _env("STAFF_FINDER_OPENAI_MODEL") or _env("OPENAI_MODEL"),
@@ -193,7 +202,8 @@ def load_settings(
         "cache_dir": _env("STAFF_FINDER_CACHE_DIR") or _env("CACHE_DIR"),
         # Retry settings
         "max_retries": _env("STAFF_FINDER_MAX_RETRIES") or _env("MAX_RETRIES"),
-        "retry_initial_wait": _env("STAFF_FINDER_RETRY_INITIAL_WAIT") or _env("RETRY_INITIAL_WAIT"),
+        "retry_initial_wait": _env("STAFF_FINDER_RETRY_INITIAL_WAIT")
+        or _env("RETRY_INITIAL_WAIT"),
         "retry_max_wait": _env("STAFF_FINDER_RETRY_MAX_WAIT") or _env("RETRY_MAX_WAIT"),
         # Content truncation
         "max_content_chars": _env("STAFF_FINDER_MAX_CONTENT_CHARS") or _env("MAX_CONTENT_CHARS"),
@@ -216,7 +226,7 @@ def load_settings(
         try:
             return int(v)
         except Exception as e:
-            raise ConfigError(f"{key} must be an integer") from e
+            raise ConfigValidationError(f"{key} must be an integer") from e
 
     def to_float(key: str, v: Any, default: float) -> float:
         if v is None:
@@ -224,7 +234,7 @@ def load_settings(
         try:
             return float(v)
         except Exception as e:
-            raise ConfigError(f"{key} must be a number") from e
+            raise ConfigValidationError(f"{key} must be a number") from e
 
     def to_bool(key: str, v: Any, default: bool) -> bool:
         if v is None:
@@ -236,7 +246,7 @@ def load_settings(
             return True
         if s in ("false", "0", "no", "off"):
             return False
-        raise ConfigError(f"{key} must be a boolean (true/false)")
+        raise ConfigValidationError(f"{key} must be a boolean (true/false)")
 
     def to_path(key: str, v: Any, default: pathlib.Path) -> pathlib.Path:
         if v is None:
@@ -244,7 +254,7 @@ def load_settings(
         try:
             return pathlib.Path(str(v))
         except Exception as e:
-            raise ConfigError(f"{key} must be a path") from e
+            raise ConfigValidationError(f"{key} must be a path") from e
 
     cfg = Settings(
         input_csv=str(pick("input_csv", input_csv) or Settings.input_csv),
@@ -254,9 +264,7 @@ def load_settings(
         ),
         openai_api_key=pick("openai_api_key", openai_api_key),
         openai_model=str(pick("openai_model", openai_model) or Settings.openai_model),
-        openai_verbosity=str(
-            pick("openai_verbosity", openai_verbosity) or Settings.openai_verbosity
-        ),
+        openai_verbosity=str(pick("openai_verbosity", openai_verbosity) or Settings.openai_verbosity),
         openai_reasoning_effort=str(
             pick("openai_reasoning_effort", openai_reasoning_effort)
             or Settings.openai_reasoning_effort
@@ -267,12 +275,8 @@ def load_settings(
             Settings.openai_request_timeout,
         ),
         jina_api_key=pick("jina_api_key", jina_api_key),
-        jina_base_url=str(
-            pick("jina_base_url", jina_base_url) or Settings.jina_base_url
-        ).rstrip("/"),
-        jina_no_cache=to_bool(
-            "jina_no_cache", pick("jina_no_cache", jina_no_cache), Settings.jina_no_cache
-        ),
+        jina_base_url=str(pick("jina_base_url", jina_base_url) or Settings.jina_base_url).rstrip("/"),
+        jina_no_cache=to_bool("jina_no_cache", pick("jina_no_cache", jina_no_cache), Settings.jina_no_cache),
         jina_request_timeout=to_float(
             "jina_request_timeout",
             pick("jina_request_timeout", jina_request_timeout),
@@ -313,25 +317,23 @@ def load_settings(
             pick("checkpoint_every", checkpoint_every),
             Settings.checkpoint_every,
         ),
-        enable_resume=to_bool(
-            "enable_resume", pick("enable_resume", enable_resume), Settings.enable_resume
-        ),
+        enable_resume=to_bool("enable_resume", pick("enable_resume", enable_resume), Settings.enable_resume),
         enable_jina_cache=to_bool(
             "enable_jina_cache",
             pick("enable_jina_cache", enable_jina_cache),
             Settings.enable_jina_cache,
         ),
         cache_dir=to_path("cache_dir", pick("cache_dir", cache_dir), Settings.cache_dir),
-        max_retries=to_int(
-            "max_retries", pick("max_retries", max_retries), Settings.max_retries
-        ),
+        max_retries=to_int("max_retries", pick("max_retries", max_retries), Settings.max_retries),
         retry_initial_wait=to_float(
             "retry_initial_wait",
             pick("retry_initial_wait", retry_initial_wait),
             Settings.retry_initial_wait,
         ),
         retry_max_wait=to_float(
-            "retry_max_wait", pick("retry_max_wait", retry_max_wait), Settings.retry_max_wait
+            "retry_max_wait",
+            pick("retry_max_wait", retry_max_wait),
+            Settings.retry_max_wait,
         ),
         max_content_chars=to_int(
             "max_content_chars",
@@ -344,30 +346,62 @@ def load_settings(
     return cfg
 
 
+def validate_settings(cfg: Settings) -> None:
+    # Enum-ish settings
+    if cfg.log_level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        raise ConfigValidationError("log_level must be one of DEBUG|INFO|WARNING|ERROR|CRITICAL")
+    if cfg.openai_verbosity.lower() not in ("low", "medium", "high"):
+        raise ConfigValidationError("openai_verbosity must be one of low|medium|high")
+    if cfg.openai_reasoning_effort.lower() not in ("low", "medium", "high"):
+        raise ConfigValidationError("openai_reasoning_effort must be one of low|medium|high")
+
+    # Numeric ranges
+    if cfg.openai_request_timeout <= 0:
+        raise ConfigValidationError("openai_request_timeout must be > 0")
+    if cfg.jina_request_timeout <= 0:
+        raise ConfigValidationError("jina_request_timeout must be > 0")
+
+    if cfg.checkpoint_every < 1:
+        raise ConfigValidationError("checkpoint_every must be >= 1")
+
+    if cfg.max_concurrent_schools < 1:
+        raise ConfigValidationError("max_concurrent_schools must be >= 1")
+    if cfg.max_concurrent_jina < 1:
+        raise ConfigValidationError("max_concurrent_jina must be >= 1")
+    if cfg.max_concurrent_openai < 1:
+        raise ConfigValidationError("max_concurrent_openai must be >= 1")
+
+    if cfg.max_queries_per_school < 1:
+        raise ConfigValidationError("max_queries_per_school must be >= 1")
+    if cfg.candidates_for_selection < 1:
+        raise ConfigValidationError("candidates_for_selection must be >= 1")
+
+    if cfg.per_row_delay_sec < 0:
+        raise ConfigValidationError("per_row_delay_sec must be >= 0")
+
+    if cfg.max_retries < 0:
+        raise ConfigValidationError("max_retries must be >= 0")
+    if cfg.retry_initial_wait < 0:
+        raise ConfigValidationError("retry_initial_wait must be >= 0")
+    if cfg.retry_max_wait < 0:
+        raise ConfigValidationError("retry_max_wait must be >= 0")
+    if cfg.retry_initial_wait > cfg.retry_max_wait:
+        raise ConfigValidationError("retry_initial_wait must be <= retry_max_wait")
+
+    if cfg.max_content_chars < 1:
+        raise ConfigValidationError("max_content_chars must be >= 1")
+
+
 def require_keys(cfg: Settings) -> None:
     if not cfg.jina_api_key:
-        raise ConfigError(
+        raise ConfigAuthError(
             "Missing Jina API key. Set JINA_API_KEY (or STAFF_FINDER_JINA_API_KEY) "
             "or add jina_api_key to config.toml."
         )
     if not cfg.openai_api_key:
-        raise ConfigError(
+        raise ConfigAuthError(
             "Missing OpenAI API key. Set OPENAI_API_KEY (or STAFF_FINDER_OPENAI_API_KEY) "
             "or add openai_api_key to config.toml."
         )
 
-    if cfg.log_level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-        raise ConfigError("log_level must be one of DEBUG|INFO|WARNING|ERROR|CRITICAL")
-    if cfg.openai_verbosity.lower() not in ("low", "medium", "high"):
-        raise ConfigError("openai_verbosity must be one of low|medium|high")
-    if cfg.openai_reasoning_effort.lower() not in ("low", "medium", "high"):
-        raise ConfigError("openai_reasoning_effort must be one of low|medium|high")
-
-    if cfg.checkpoint_every < 1:
-        raise ConfigError("checkpoint_every must be >= 1")
-    if cfg.max_concurrent_schools < 1:
-        raise ConfigError("max_concurrent_schools must be >= 1")
-    if cfg.max_concurrent_jina < 1:
-        raise ConfigError("max_concurrent_jina must be >= 1")
-    if cfg.max_concurrent_openai < 1:
-        raise ConfigError("max_concurrent_openai must be >= 1")
+    validate_settings(cfg)

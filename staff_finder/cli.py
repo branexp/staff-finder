@@ -11,7 +11,7 @@ import typer
 from dotenv import load_dotenv  # type: ignore
 from tqdm import tqdm  # type: ignore
 
-from .config import ConfigError, Settings, load_settings, require_keys
+from .config import ConfigAuthError, ConfigError, ConfigValidationError, Settings, load_settings, require_keys
 from .io_csv import ensure_output_columns, load_df, save_df
 from .limiters import Limiters
 from .logging_setup import setup_logging
@@ -212,7 +212,7 @@ def run(
     openai_model: str | None = typer.Option(
         None,
         "--openai-model",
-        help="OpenAI model to use (default: gpt-5-mini; can also come from env/config).",
+        help="OpenAI model to use (default: gpt-4o-mini; can also come from env/config).",
     ),
     max_concurrent: int | None = typer.Option(
         None,
@@ -232,16 +232,26 @@ def run(
 
     output_csv = str(output) if output else str(_default_output_path(input_csv))
 
-    cfg = load_settings(
-        config_path=config,
-        input_csv=str(input_csv),
-        output_csv=output_csv,
-        jina_api_key=jina_api_key,
-        openai_api_key=openai_api_key,
-        openai_model=openai_model,
-        max_concurrent_schools=max_concurrent,
-        log_level="DEBUG" if verbose else None,
-    )
+    try:
+        cfg = load_settings(
+            config_path=config,
+            input_csv=str(input_csv),
+            output_csv=output_csv,
+            jina_api_key=jina_api_key,
+            openai_api_key=openai_api_key,
+            openai_model=openai_model,
+            max_concurrent_schools=max_concurrent,
+            log_level="DEBUG" if verbose else None,
+        )
+    except ConfigAuthError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.API_OR_AUTH) from e
+    except ConfigValidationError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
+    except ConfigError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
 
     if debug:
         typer.echo("Debug:")
@@ -256,15 +266,21 @@ def run(
     except FileNotFoundError as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.VALIDATION) from e
-    except ConfigError as e:
+    except ConfigAuthError as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.API_OR_AUTH) from e
+    except ConfigValidationError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
+    except ConfigError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
     except (httpx.ReadTimeout, httpx.ConnectError) as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.NETWORK) from e
     except KeyboardInterrupt:
         typer.echo("Interrupted. Partial results saved.")
-        raise typer.Exit(ExitCode.NETWORK) from None
+        raise typer.Exit(ExitCode.SUCCESS) from None
     except Exception as e:
         typer.echo(str(e))
         raise typer.Exit(ExitCode.UNEXPECTED) from e

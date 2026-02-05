@@ -52,7 +52,7 @@ staff-finder run schools.csv \
   --output schools_with_urls.csv \
   --jina-api-key YOUR_JINA_KEY \
   --openai-api-key YOUR_OPENAI_KEY \
-  --openai-model gpt-5-mini \
+  --openai-model gpt-4o-mini \
   --max-concurrent 5 \
   --verbose
 ```
@@ -68,25 +68,46 @@ Settings are loaded using precedence:
 
 ### Using environment variables
 
+Minimum required:
+
 ```bash
 export JINA_API_KEY="your_jina_key"
 export OPENAI_API_KEY="your_openai_key"
 
-# Recommended prefixed vars (also supported):
-# export STAFF_FINDER_JINA_API_KEY="..."
-# export STAFF_FINDER_OPENAI_API_KEY="..."
+# Optional (overrides the default model):
+export OPENAI_MODEL="gpt-4o-mini"
 
 staff-finder run schools.csv
 ```
+
+Preferred (namespaced) env vars are also supported:
+
+```bash
+export STAFF_FINDER_JINA_API_KEY="your_jina_key"
+export STAFF_FINDER_OPENAI_API_KEY="your_openai_key"
+export STAFF_FINDER_OPENAI_MODEL="gpt-4o-mini"
+```
+
+Optional local `.env` file (loaded with `override=False`, so real environment variables still win):
+
+```dotenv
+JINA_API_KEY=your_jina_key
+OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+For the full list of supported environment variables, see `.env.example`.
 
 ### Using a config file
 
 Create `~/.config/staff-finder/config.toml`:
 
 ```toml
-jina_api_key = "..."
-openai_api_key = "..."
-openai_model = "gpt-5-mini"
+# Prefer env vars for API keys. If you do store them here, chmod 600.
+# openai_api_key = "..."
+# jina_api_key = "..."
+
+openai_model = "gpt-4o-mini"
 max_concurrent_schools = 5
 ```
 
@@ -124,9 +145,9 @@ If your input already contains a URL column (e.g. `staff_directory_url`), Staff-
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--output, -o` | Output CSV file path | `{input}_with_urls.csv` |
-| `--jina-api-key` | Jina API key | From `JINA_API_KEY` env var |
-| `--openai-api-key` | OpenAI API key (required) | From `OPENAI_API_KEY` env var |
-| `--openai-model` | OpenAI model to use | `gpt-5-mini` |
+| `--jina-api-key` | Jina API key | From env/config |
+| `--openai-api-key` | OpenAI API key (required) | From env/config |
+| `--openai-model` | OpenAI model to use | `gpt-4o-mini` |
 | `--max-concurrent` | Max concurrent requests | `5` |
 | `--verbose, -v` | Enable verbose logging | `False` |
 
@@ -147,7 +168,6 @@ export JINA_API_KEY="jina_..."
 
 # output defaults to: example_schools_with_urls.csv
 staff-finder run example_schools.csv -v
-
 ```
 
 Output:

@@ -12,12 +12,16 @@ REPO_ROOT = Path(__file__).parent.parent
 def test_imports():
     """Test that all modules can be imported."""
     from staff_finder import (
+        ConfigError,
         School,
         SelectionResult,
         Settings,
+        load_settings,
         map_headers,
         resolve_for_school_async,
     )
+    assert ConfigError is not None
+    assert load_settings is not None
     assert Settings is not None
     assert School is not None
     assert SelectionResult is not None
