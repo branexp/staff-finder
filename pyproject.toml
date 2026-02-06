@@ -35,9 +35,11 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["staff_finder*"]
 
+[tool.setuptools.package-dir]
+"" = "src"
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
