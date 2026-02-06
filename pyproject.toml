@@ -35,7 +35,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["staff_finder*"]
 
 [tool.pytest.ini_options]
