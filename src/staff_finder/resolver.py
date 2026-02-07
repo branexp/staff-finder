@@ -21,11 +21,11 @@ async def resolve_for_school_async(
     lim: Limiters | None = None,
 ) -> SelectionResult:
     """Resolve the staff directory URL for a school.
-    
+
     Args:
         cfg: Application settings
         school: School to find staff directory for
-        
+
     Returns:
         SelectionResult with url, confidence, and reasoning
     """

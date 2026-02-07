@@ -55,7 +55,9 @@ async def test_openai_pick_best_url_is_mockable(monkeypatch: pytest.MonkeyPatch)
     class _FakeResponses:
         async def create(self, **kwargs: Any) -> Any:
             calls.append(kwargs)
-            return type("Resp", (), {"output_text": json.dumps({"selected_url": "https://x.edu/staff"})})
+            return type(
+                "Resp", (), {"output_text": json.dumps({"selected_url": "https://x.edu/staff"})}
+            )
 
     class _FakeClient:
         def __init__(self, *args: Any, **kwargs: Any) -> None:

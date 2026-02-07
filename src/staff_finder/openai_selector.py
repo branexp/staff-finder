@@ -31,8 +31,8 @@ def load_system_prompt(path: str) -> str:
         "Prefer the school's own site; otherwise the district page scoped to the school. "
         "Avoid socials/aggregators.\n"
         "Output exactly one JSON object: "
-        "{\"selected_index\": <int>, \"selected_url\": \"<url or null>\", "
-        "\"confidence\": \"high|medium|low\", \"reasoning\": \"<brief explanation>\"}\n"
+        '{"selected_index": <int>, "selected_url": "<url or null>", '
+        '"confidence": "high|medium|low", "reasoning": "<brief explanation>"}\n'
     )
 
 
@@ -50,7 +50,7 @@ def _payload(school: School, candidates: list[dict], max_content_chars: int) -> 
         {
             "title": c.get("title", ""),
             "url": c.get("url", ""),
-            "content": _truncate_content(c.get("content", ""), max_content_chars)
+            "content": _truncate_content(c.get("content", ""), max_content_chars),
         }
         for c in candidates
     ]
@@ -60,9 +60,9 @@ def _payload(school: School, candidates: list[dict], max_content_chars: int) -> 
             "county_name": school.county,
             "city": school.city,
             "state": school.state,
-            "school_name": school.name
+            "school_name": school.name,
         },
-        "candidates": truncated_candidates
+        "candidates": truncated_candidates,
     }
 
 
@@ -85,7 +85,7 @@ def parse_gpt_response(raw: str | None) -> SelectionResult:
     """Parse GPT response into a SelectionResult with url, confidence, and reasoning."""
     if not raw:
         return SelectionResult(url="ERROR_NOT_FOUND", reasoning="No response from model")
-    
+
     try:
         obj = json.loads(raw)
         if isinstance(obj, dict):
@@ -94,11 +94,11 @@ def parse_gpt_response(raw: str | None) -> SelectionResult:
             return SelectionResult(
                 url=url if (url and url != "NOT_FOUND") else "NOT_FOUND",
                 confidence=obj.get("confidence"),
-                reasoning=obj.get("reasoning", "")
+                reasoning=obj.get("reasoning", ""),
             )
     except json.JSONDecodeError:
         pass
-    
+
     # Fallback: try to extract URL from malformed response
     m = URL_RE.search(raw or "")
     url_value = m.group(0) if m else None
@@ -106,7 +106,7 @@ def parse_gpt_response(raw: str | None) -> SelectionResult:
     return SelectionResult(
         url=url if url else "NOT_FOUND",
         confidence="low",
-        reasoning="Extracted from malformed response"
+        reasoning="Extracted from malformed response",
     )
 
 
@@ -117,10 +117,10 @@ _RESPONSE_SCHEMA = {
         "selected_index": {"type": "integer"},
         "selected_url": {"type": ["string", "null"]},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "reasoning": {"type": "string"}
+        "reasoning": {"type": "string"},
     },
     "required": ["selected_index", "selected_url", "confidence", "reasoning"],
-    "additionalProperties": False
+    "additionalProperties": False,
 }
 
 
@@ -148,8 +148,8 @@ async def pick_best_url_async(
                 "type": "json_schema",
                 "name": "StaffDirectoryResult",
                 "schema": _RESPONSE_SCHEMA,
-                "strict": True
-            }
+                "strict": True,
+            },
         },
     )
     return _response_text(resp)

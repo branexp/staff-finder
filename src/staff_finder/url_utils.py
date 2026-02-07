@@ -8,10 +8,10 @@ URL_RE = re.compile(r"https?://[^\s\"'>)]+", re.IGNORECASE)
 
 def sanitize_url(url: str | None) -> str | None:
     """Sanitize and normalize a URL.
-    
+
     Args:
         url: The URL to sanitize
-        
+
     Returns:
         Normalized URL or None if invalid
     """

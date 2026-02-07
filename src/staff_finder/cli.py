@@ -11,7 +11,14 @@ import typer
 from dotenv import load_dotenv  # type: ignore
 from tqdm import tqdm  # type: ignore
 
-from .config import ConfigAuthError, ConfigError, ConfigValidationError, Settings, load_settings, require_keys
+from .config import (
+    ConfigAuthError,
+    ConfigError,
+    ConfigValidationError,
+    Settings,
+    load_settings,
+    require_keys,
+)
 from .io_csv import ensure_output_columns, load_df, save_df
 from .limiters import Limiters
 from .logging_setup import setup_logging

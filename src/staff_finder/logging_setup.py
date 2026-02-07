@@ -11,7 +11,7 @@ def setup_logging(
     log_level: str = "INFO",
 ) -> None:
     """Configure logging with optional file and console output.
-    
+
     Args:
         log_file: Path to the log file.
         console: Whether to also log to console.
@@ -20,7 +20,7 @@ def setup_logging(
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     root = logging.getLogger()
-    
+
     # Parse log level
     level = getattr(logging, log_level.upper(), logging.INFO)
     root.setLevel(level)

@@ -32,7 +32,7 @@ def _headers(cfg: Settings) -> dict[str, str]:
     h = {
         "Authorization": f"Bearer {cfg.jina_api_key}",
         "Accept": "application/json",
-        "User-Agent": "staff-finder/0.3"
+        "User-Agent": "staff-finder/0.3",
     }
     if cfg.jina_no_cache:
         h["x-no-cache"] = "true"
@@ -84,11 +84,13 @@ async def _jina_search(cfg: Settings, query: str, sites: list[str] | None = None
     for it in items:
         if not isinstance(it, dict):
             continue
-        out.append({
-            "title": (it.get("title") or ""),
-            "url": (it.get("url") or ""),
-            "content": (it.get("content") or it.get("description") or ""),
-        })
+        out.append(
+            {
+                "title": (it.get("title") or ""),
+                "url": (it.get("url") or ""),
+                "content": (it.get("content") or it.get("description") or ""),
+            }
+        )
     return out
 
 

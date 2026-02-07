@@ -19,7 +19,9 @@ def _write_minimal_input(tmp_path: Path) -> tuple[Path, Path, Path]:
     return input_csv, prompt, output_csv
 
 
-def test_load_settings_precedence_explicit_over_env_over_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_load_settings_precedence_explicit_over_env_over_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     input_csv, prompt, output_csv = _write_minimal_input(tmp_path)
 
     cfg_path = tmp_path / "config.toml"

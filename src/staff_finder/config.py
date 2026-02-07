@@ -165,8 +165,7 @@ def load_settings(
         # IO
         "input_csv": _env("STAFF_FINDER_INPUT_CSV") or _env("INPUT_CSV"),
         "output_csv": _env("STAFF_FINDER_OUTPUT_CSV") or _env("OUTPUT_CSV"),
-        "system_prompt_path": _env("STAFF_FINDER_SYSTEM_PROMPT_PATH")
-        or _env("SYSTEM_PROMPT_PATH"),
+        "system_prompt_path": _env("STAFF_FINDER_SYSTEM_PROMPT_PATH") or _env("SYSTEM_PROMPT_PATH"),
         # OpenAI
         "openai_api_key": _env("STAFF_FINDER_OPENAI_API_KEY") or _env("OPENAI_API_KEY"),
         "openai_model": _env("STAFF_FINDER_OPENAI_MODEL") or _env("OPENAI_MODEL"),
@@ -202,8 +201,7 @@ def load_settings(
         "cache_dir": _env("STAFF_FINDER_CACHE_DIR") or _env("CACHE_DIR"),
         # Retry settings
         "max_retries": _env("STAFF_FINDER_MAX_RETRIES") or _env("MAX_RETRIES"),
-        "retry_initial_wait": _env("STAFF_FINDER_RETRY_INITIAL_WAIT")
-        or _env("RETRY_INITIAL_WAIT"),
+        "retry_initial_wait": _env("STAFF_FINDER_RETRY_INITIAL_WAIT") or _env("RETRY_INITIAL_WAIT"),
         "retry_max_wait": _env("STAFF_FINDER_RETRY_MAX_WAIT") or _env("RETRY_MAX_WAIT"),
         # Content truncation
         "max_content_chars": _env("STAFF_FINDER_MAX_CONTENT_CHARS") or _env("MAX_CONTENT_CHARS"),
@@ -264,7 +262,9 @@ def load_settings(
         ),
         openai_api_key=pick("openai_api_key", openai_api_key),
         openai_model=str(pick("openai_model", openai_model) or Settings.openai_model),
-        openai_verbosity=str(pick("openai_verbosity", openai_verbosity) or Settings.openai_verbosity),
+        openai_verbosity=str(
+            pick("openai_verbosity", openai_verbosity) or Settings.openai_verbosity
+        ),
         openai_reasoning_effort=str(
             pick("openai_reasoning_effort", openai_reasoning_effort)
             or Settings.openai_reasoning_effort
@@ -275,8 +275,12 @@ def load_settings(
             Settings.openai_request_timeout,
         ),
         jina_api_key=pick("jina_api_key", jina_api_key),
-        jina_base_url=str(pick("jina_base_url", jina_base_url) or Settings.jina_base_url).rstrip("/"),
-        jina_no_cache=to_bool("jina_no_cache", pick("jina_no_cache", jina_no_cache), Settings.jina_no_cache),
+        jina_base_url=str(pick("jina_base_url", jina_base_url) or Settings.jina_base_url).rstrip(
+            "/"
+        ),
+        jina_no_cache=to_bool(
+            "jina_no_cache", pick("jina_no_cache", jina_no_cache), Settings.jina_no_cache
+        ),
         jina_request_timeout=to_float(
             "jina_request_timeout",
             pick("jina_request_timeout", jina_request_timeout),
@@ -317,7 +321,9 @@ def load_settings(
             pick("checkpoint_every", checkpoint_every),
             Settings.checkpoint_every,
         ),
-        enable_resume=to_bool("enable_resume", pick("enable_resume", enable_resume), Settings.enable_resume),
+        enable_resume=to_bool(
+            "enable_resume", pick("enable_resume", enable_resume), Settings.enable_resume
+        ),
         enable_jina_cache=to_bool(
             "enable_jina_cache",
             pick("enable_jina_cache", enable_jina_cache),

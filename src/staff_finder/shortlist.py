@@ -1,7 +1,6 @@
 """Shortlist utilities for candidate URL selection."""
 
 
-
 def round_robin_union(per_query: list[list[dict]], limit: int) -> list[dict]:
     """Interleave lists to keep variety; stop at limit."""
     out: list[dict] = []

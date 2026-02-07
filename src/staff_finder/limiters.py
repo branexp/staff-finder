@@ -9,6 +9,7 @@ from .config import Settings  # type: ignore
 @dataclass
 class Limiters:
     """Semaphore-based concurrency limiters."""
+
     sem_schools: asyncio.Semaphore
     sem_jina: asyncio.Semaphore
     sem_openai: asyncio.Semaphore
