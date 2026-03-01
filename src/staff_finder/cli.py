@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ import typer
 from dotenv import load_dotenv  # type: ignore
 from tqdm import tqdm  # type: ignore
 
+from .batch_router import resume_batch_task, start_batch_task
+from .batch_tasks import list_tasks
 from .config import (
     ConfigAuthError,
     ConfigError,
@@ -26,6 +29,8 @@ from .models import map_headers
 from .resolver import resolve_for_school_async
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
+batch_app = typer.Typer(add_completion=False, no_args_is_help=True)
+app.add_typer(batch_app, name="batch")
 
 
 @app.callback()
@@ -47,6 +52,11 @@ class ExitCode:
 
 def _default_output_path(input_csv: Path) -> Path:
     return input_csv.with_name(input_csv.stem + "_with_urls" + input_csv.suffix)
+
+
+def _task_choices() -> str:
+    tasks = list_tasks()
+    return ", ".join(tasks) if tasks else "(none)"
 
 
 def _redact_secret(value: str | None) -> str:
@@ -302,3 +312,141 @@ def run(
             f"found={summary['rows_found']} not_found={summary['rows_not_found']} "
             f"error={summary['rows_error']}"
         )
+
+
+@batch_app.command("start")
+def batch_start(
+    task_name: str = typer.Argument(
+        ...,
+        help="Task name. Use 'staff-finder batch tasks' to list available tasks.",
+    ),
+    input_csv: Path = typer.Argument(..., exists=True, dir_okay=False, help="Input CSV."),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        dir_okay=False,
+        help="Final enriched CSV output path.",
+    ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        dir_okay=False,
+        help="Optional config.toml path.",
+    ),
+    jina_api_key: str | None = typer.Option(
+        None,
+        "--jina-api-key",
+        help="Jina API key override.",
+    ),
+    openai_api_key: str | None = typer.Option(
+        None,
+        "--openai-api-key",
+        help="OpenAI API key override.",
+    ),
+    openai_model: str | None = typer.Option(
+        None,
+        "--openai-model",
+        help="OpenAI model override.",
+    ),
+    max_concurrent_jina: int | None = typer.Option(
+        None,
+        "--max-concurrent-jina",
+        min=1,
+        max=20,
+        help="Max concurrent Jina queries for preprocessing.",
+    ),
+) -> None:
+    """Start a non-blocking batch job for a registered task."""
+    load_dotenv(override=False)
+
+    try:
+        cfg = load_settings(
+            config_path=config,
+            input_csv=str(input_csv),
+            output_csv=str(output) if output else None,
+            jina_api_key=jina_api_key,
+            openai_api_key=openai_api_key,
+            openai_model=openai_model,
+            max_concurrent_jina=max_concurrent_jina,
+        )
+        require_keys(cfg)
+        if cfg.jina_api_key:
+            os.environ["STAFF_FINDER_JINA_API_KEY"] = cfg.jina_api_key
+    except ConfigAuthError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.API_OR_AUTH) from e
+    except (ConfigValidationError, ConfigError) as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
+
+    try:
+        batch_id = start_batch_task(
+            task_name,
+            input_csv,
+            openai_api_key=cfg.openai_api_key or "",
+            openai_model=cfg.openai_model,
+            max_jina_workers=cfg.max_concurrent_jina,
+            output_csv=output,
+        )
+    except KeyError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
+    except Exception as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.UNEXPECTED) from e
+
+    typer.echo(batch_id)
+
+
+@batch_app.command("resume")
+def batch_resume(
+    batch_id: str = typer.Argument(..., help="OpenAI batch ID returned by `batch start`."),
+    task_name: str = typer.Option(
+        ...,
+        "--task",
+        help="Task name used for this batch. Use 'staff-finder batch tasks' to list available tasks.",
+    ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        dir_okay=False,
+        help="Optional config.toml path.",
+    ),
+    openai_api_key: str | None = typer.Option(
+        None,
+        "--openai-api-key",
+        help="OpenAI API key override.",
+    ),
+) -> None:
+    """Resume/check a batch. Downloads and postprocesses when complete."""
+    load_dotenv(override=False)
+
+    try:
+        cfg = load_settings(config_path=config, openai_api_key=openai_api_key)
+        if not cfg.openai_api_key:
+            raise ConfigAuthError(
+                "Missing OpenAI API key. Set OPENAI_API_KEY (or STAFF_FINDER_OPENAI_API_KEY)."
+            )
+    except ConfigAuthError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.API_OR_AUTH) from e
+    except (ConfigValidationError, ConfigError) as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.VALIDATION) from e
+
+    try:
+        result = resume_batch_task(
+            batch_id=batch_id,
+            task_name=task_name,
+            openai_api_key=cfg.openai_api_key,
+        )
+    except Exception as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.UNEXPECTED) from e
+
+    if result.output_csv:
+        typer.echo(f"completed: {result.status}")
+        typer.echo(str(result.output_csv))
+    else:
+        typer.echo(f"status: {result.status}")
