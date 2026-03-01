@@ -24,6 +24,7 @@ def test_district_postprocess_writes_expected_columns(tmp_path: Path):
         [
             {"district_name": "Acme Public Schools", "state_abbr": "TX"},
             {"district_name": "North Valley School District", "state_abbr": "CA"},
+            {"district_name": "Unknown District", "state_abbr": "NY"},
         ]
     )
     merged_df = pd.DataFrame(
@@ -40,6 +41,11 @@ def test_district_postprocess_writes_expected_columns(tmp_path: Path):
                 "status": "success",
                 "output_content": '{"acronym":"NVSD","website_url":"https://northvalley.k12.ca.us"}',
             },
+            {
+                "source_index": 2,
+                "status": "success",
+                "output_content": '{"acronym":"UD","website_url":null}',
+            },
         ]
     )
 
@@ -54,3 +60,7 @@ def test_district_postprocess_writes_expected_columns(tmp_path: Path):
     assert saved.loc[1, "acronym"] == "NVSD"
     assert saved.loc[1, "website_url"] == "https://northvalley.k12.ca.us"
     assert saved.loc[1, "domain"] == "northvalley.k12.ca.us"
+    # When website_url is null, domain must also be null
+    assert saved.loc[2, "acronym"] == "UD"
+    assert pd.isna(saved.loc[2, "website_url"])
+    assert pd.isna(saved.loc[2, "domain"])

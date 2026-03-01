@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pandas as pd  # type: ignore
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from .base import BatchTask, PreprocessResult
 from .registry import register_task
@@ -41,6 +41,20 @@ def _normalize_domain(url: str | None) -> str | None:
     if host.startswith("www."):
         host = host[4:]
     return host or None
+
+
+def _is_transient_fetch_error(exc: BaseException) -> bool:
+    """Return True for transient errors that warrant a retry (429, 5xx, timeouts)."""
+    try:
+        import httpx
+
+        if isinstance(exc, (httpx.ReadTimeout, httpx.ConnectError)):
+            return True
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+            return exc.response.status_code == 429 or (500 <= exc.response.status_code < 600)
+    except ImportError:
+        pass
+    return False
 
 
 @register_task("district_enrichment")
@@ -86,7 +100,11 @@ class DistrictEnrichmentTask(BatchTask):
         client = JinaClient(api_key=api_key)
         worker_count = max(1, min(max_workers, 20))
 
-        @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3))
+        @retry(
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            stop=stop_after_attempt(3),
+            retry=retry_if_exception(_is_transient_fetch_error),
+        )
         def fetch(query: str) -> str:
             if not query:
                 return ""
