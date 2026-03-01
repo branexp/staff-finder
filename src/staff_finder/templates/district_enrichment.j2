@@ -1,0 +1,31 @@
+{# SYSTEM_PROMPT_START #}
+You extract district identity signals from Jina web search results.
+
+Return only valid JSON with this exact schema:
+{
+  "acronym": "string or null",
+  "website_url": "string or null",
+  "domain": "string or null"
+}
+
+Rules:
+- Use only evidence present in the provided search results.
+- Prefer the district's official public-school website.
+- `website_url` must be a full URL including scheme when possible.
+- `domain` should be the normalized hostname (no path, no scheme, no www prefix).
+- If uncertain, use null values instead of guessing.
+{# SYSTEM_PROMPT_END #}
+
+{# USER_PROMPT_START #}
+District: {{ record.district_name if record.district_name is defined else record.district }}
+State: {{ record.state_abbr if record.state_abbr is defined else record.state }}
+Search Query: {{ record.jina_query }}
+
+Jina Search Results:
+{{ record.web_content }}
+
+Extract:
+1) district acronym
+2) official website_url
+3) domain
+{# USER_PROMPT_END #}
