@@ -14,7 +14,7 @@ def test_district_enrichment_task_is_registered():
 def test_district_template_sections_load():
     task = get_task("district_enrichment")
     system_template, user_template = task.load_prompt_templates()
-    assert "Return only valid JSON" in system_template
+    assert "Return ONLY valid JSON" in system_template
     assert "{{ record.web_content }}" in user_template
 
 
@@ -32,13 +32,13 @@ def test_district_postprocess_writes_expected_columns(tmp_path: Path):
                 "source_index": 0,
                 "status": "success",
                 "output_content": (
-                    '{"acronym":"APS","website_url":"https://www.acmeisd.org","domain":"acmeisd.org"}'
+                    '{"acronym":"APS","website_url":"https://www.acmeisd.org"}'
                 ),
             },
             {
                 "source_index": 1,
                 "status": "success",
-                "output_content": '{"acronym":"NVSD","website_url":null,"domain":"northvalley.k12.ca.us"}',
+                "output_content": '{"acronym":"NVSD","website_url":"https://northvalley.k12.ca.us"}',
             },
         ]
     )
