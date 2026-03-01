@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pandas as pd  # type: ignore
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from .base import BatchTask, PreprocessResult
 from .registry import register_task
@@ -40,6 +41,20 @@ def _normalize_domain(url: str | None) -> str | None:
     if host.startswith("www."):
         host = host[4:]
     return host or None
+
+
+def _is_transient_fetch_error(exc: BaseException) -> bool:
+    """Return True for transient errors that warrant a retry (429, 5xx, timeouts)."""
+    try:
+        import httpx
+
+        if isinstance(exc, (httpx.ReadTimeout, httpx.ConnectError)):
+            return True
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+            return exc.response.status_code == 429 or (500 <= exc.response.status_code < 600)
+    except ImportError:
+        pass
+    return False
 
 
 @register_task("district_enrichment")
@@ -76,7 +91,8 @@ class DistrictEnrichmentTask(BatchTask):
         def build_query(row: pd.Series) -> str:
             district = "" if pd.isna(row[district_col]) else str(row[district_col]).strip()
             state = "" if pd.isna(row[state_col]) else str(row[state_col]).strip()
-            return f"{district} {state} public schools official website acronym".strip()
+            district_part = f'"{district}"' if district else ""
+            return f"{district_part} {state} school district official website".strip()
 
         df["jina_query"] = df.apply(build_query, axis=1)
         df["web_content"] = ""
@@ -84,6 +100,11 @@ class DistrictEnrichmentTask(BatchTask):
         client = JinaClient(api_key=api_key)
         worker_count = max(1, min(max_workers, 20))
 
+        @retry(
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            stop=stop_after_attempt(3),
+            retry=retry_if_exception(_is_transient_fetch_error),
+        )
         def fetch(query: str) -> str:
             if not query:
                 return ""
@@ -92,7 +113,7 @@ class DistrictEnrichmentTask(BatchTask):
             for i, result in enumerate(results, 1):
                 title = (result.title or "").strip()
                 description = (result.description or "").strip()
-                content = (result.content or "").strip()
+                content = (result.content or "").strip()[:1500]
                 url = result.url.strip()
                 chunks.append(
                     f"[{i}] title: {title}\nurl: {url}\ndescription: {description}\ncontent: {content}"
@@ -151,18 +172,15 @@ class DistrictEnrichmentTask(BatchTask):
 
             acronym = payload.get("acronym")
             website_url = payload.get("website_url")
-            domain = payload.get("domain")
 
             if website_url and not isinstance(website_url, str):
                 website_url = str(website_url)
-            if domain and not isinstance(domain, str):
-                domain = str(domain)
-            # Always normalize domain from either the explicit field or the website URL.
-            domain = _normalize_domain(domain) or _normalize_domain(website_url)
-            if not website_url and domain:
-                website_url = f"https://{domain}"
-            elif website_url and "://" not in website_url:
+
+            if website_url and "://" not in website_url:
                 website_url = f"https://{website_url}"
+
+            # Always rely on Python to parse the domain reliably
+            domain = _normalize_domain(website_url)
 
             if acronym:
                 enriched.at[source_index, "acronym"] = str(acronym).strip()
