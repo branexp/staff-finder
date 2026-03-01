@@ -36,7 +36,7 @@ def _normalize_domain(url: str | None) -> str | None:
     if not url:
         return None
     parsed = urlparse(url if "://" in url else f"https://{url}")
-    host = parsed.netloc.lower().strip()
+    host = (parsed.hostname or "").lower().strip()
     if host.startswith("www."):
         host = host[4:]
     return host or None
@@ -157,10 +157,12 @@ class DistrictEnrichmentTask(BatchTask):
                 website_url = str(website_url)
             if domain and not isinstance(domain, str):
                 domain = str(domain)
-            if not domain:
-                domain = _normalize_domain(website_url)
+            # Always normalize domain from either the explicit field or the website URL.
+            domain = _normalize_domain(domain) or _normalize_domain(website_url)
             if not website_url and domain:
                 website_url = f"https://{domain}"
+            elif website_url and "://" not in website_url:
+                website_url = f"https://{website_url}"
 
             if acronym:
                 enriched.at[source_index, "acronym"] = str(acronym).strip()
