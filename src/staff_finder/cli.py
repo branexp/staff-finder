@@ -316,7 +316,10 @@ def run(
 
 @batch_app.command("start")
 def batch_start(
-    task_name: str = typer.Argument(..., help=f"Task name. Available: {_task_choices()}"),
+    task_name: str = typer.Argument(
+        ...,
+        help="Task name. Use 'staff-finder batch tasks' to list available tasks.",
+    ),
     input_csv: Path = typer.Argument(..., exists=True, dir_okay=False, help="Input CSV."),
     output: Path | None = typer.Option(
         None,
@@ -402,7 +405,7 @@ def batch_resume(
     task_name: str = typer.Option(
         ...,
         "--task",
-        help=f"Task name used for this batch. Available: {_task_choices()}",
+        help="Task name used for this batch. Use 'staff-finder batch tasks' to list available tasks.",
     ),
     config: Path | None = typer.Option(
         None,

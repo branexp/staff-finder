@@ -103,7 +103,10 @@ def start_batch_task(
     task = get_task(task_name)
     batchctl = _import_batchctl()
 
-    base_dir = Path(".staff_finder") / task_name
+    _now = datetime.now(UTC)
+    timestamp = _now.strftime("%Y%m%d_%H%M%S_") + f"{_now.microsecond // 1000:03d}"
+    run_id = f"{task_name}_{timestamp}"
+    base_dir = Path(".staff_finder") / task_name / run_id
     artifacts_dir = base_dir / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     registry_path = base_dir / "registry.json"
@@ -116,13 +119,12 @@ def start_batch_task(
     generator = batchctl["JsonlGenerator"](
         output_dir=artifacts_dir,
         shard_config=batchctl["ShardConfig"](
-            max_requests_per_file=1_000_000,
-            max_tokens_per_file=1_000_000_000,
-            max_bytes_per_file=1_000_000_000,
+            max_requests_per_file=50_000,
+            max_tokens_per_file=2_000_000,
+            max_bytes_per_file=100_000_000,
         ),
     )
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    resolved_batch_name = batch_name or f"{task_name}_{timestamp}"
+    resolved_batch_name = batch_name or run_id
     summary = generator.generate(
         input_set=input_set,
         batch_name=resolved_batch_name,

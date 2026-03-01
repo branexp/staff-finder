@@ -111,6 +111,38 @@ openai_model = "gpt-4o-mini"
 max_concurrent_schools = 5
 ```
 
+### Batch Commands (OpenAI Batch API)
+
+For large datasets you can use the non-blocking OpenAI Batch API via `staff-finder batch`.
+These commands require the optional `batchctl` package to be installed in the same environment.
+
+**List available tasks:**
+
+```bash
+staff-finder batch tasks
+```
+
+**Start a batch job** (preprocesses, generates JSONL, submits to OpenAI Batch API, returns a batch ID):
+
+```bash
+staff-finder batch start district_enrichment districts.csv \
+  --openai-api-key YOUR_OPENAI_KEY \
+  --jina-api-key   YOUR_JINA_KEY
+```
+
+Each run is isolated under `.staff_finder/<task>/<task>_<timestamp>/` so concurrent or repeated
+invocations with the same input file never overwrite each other's artifacts.
+
+**Resume / poll a batch job** (checks status; downloads and postprocesses results when complete):
+
+```bash
+staff-finder batch resume batch_abc123 --task district_enrichment \
+  --openai-api-key YOUR_OPENAI_KEY
+```
+
+Returns immediately with the current status if the batch is still in progress, or writes the
+enriched CSV and prints its path when the batch is complete.
+
 ## Input CSV Format
 
 The input CSV file should contain at least these columns:
