@@ -11,7 +11,6 @@ import pytest
 
 from staff_finder.batch_router import (
     BatchRunState,
-    ResumeResult,
     _read_state,
     _state_path,
     _write_state,
