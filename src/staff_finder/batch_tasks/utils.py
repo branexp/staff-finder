@@ -10,6 +10,21 @@ from urllib.parse import urlparse
 import pandas as pd  # type: ignore
 
 
+def resolve_value(row: pd.Series, *aliases: str) -> str:
+    """Return the stripped string value from the first non-null matching alias in a row.
+
+    Tries each alias in order and returns the first that exists and is non-null/non-empty.
+    Returns an empty string when none of the aliases are present or all values are null.
+    """
+    for alias in aliases:
+        val = row.get(alias)
+        if not pd.isna(val):
+            s = str(val).strip()
+            if s:
+                return s
+    return ""
+
+
 def require_column(df: pd.DataFrame, *aliases: str) -> str:
     """Return the actual column name matching one of the aliases (case-insensitive)."""
     lower = {c.lower(): c for c in df.columns}

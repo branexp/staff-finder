@@ -401,7 +401,14 @@ def batch_start(
             task_name,
             input_csv,
             openai_api_key=cfg.openai_api_key or "",
-            openai_model=cfg.openai_model,
+            # Pass an explicit model only when the user provided one (CLI flag or env var);
+            # otherwise pass None so the task's TaskConfig.default_model is used.
+            openai_model=(
+                openai_model
+                or os.getenv("STAFF_FINDER_OPENAI_MODEL")
+                or os.getenv("OPENAI_MODEL")
+                or None
+            ),
             max_jina_workers=cfg.max_concurrent_jina,
             output_csv=output,
         )

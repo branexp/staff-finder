@@ -19,6 +19,7 @@ from .utils import (
     normalize_domain,
     parse_json_response,
     require_column,
+    resolve_value,
     strip_json_fence,
     validate_nces_id,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "normalize_domain",
     "parse_json_response",
     "require_column",
+    "resolve_value",
     "strip_json_fence",
     "validate_nces_id",
 ]

@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd  # type: ignore
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-from .base import BatchTask, PreprocessResult
+from .base import BatchTask, PreprocessResult, TaskConfig
 from .errors import is_transient_http_error
 
 
@@ -19,6 +19,10 @@ class JinaBatchTask(BatchTask):
     """Base class for batch tasks that use Jina web search during preprocessing."""
 
     requires_jina = True
+
+    def __init__(self, config: TaskConfig | None = None) -> None:
+        super().__init__(config)
+        self._jina_client: Any = None
 
     @abstractmethod
     def build_jina_query(self, row: pd.Series) -> str:
@@ -36,25 +40,28 @@ class JinaBatchTask(BatchTask):
         return key
 
     def get_jina_client(self) -> Any:
-        """Get an authenticated Jina client instance."""
-        try:
-            from batchctl.core.clients.jina import JinaClient
-        except ImportError as e:
-            raise RuntimeError(
-                "batchctl is required for Jina preprocessing. "
-                "Install batchctl in the same Python environment as staff-finder."
-            ) from e
-
-        return JinaClient(api_key=self.get_jina_api_key())
+        """Get a cached, authenticated Jina client instance."""
+        if self._jina_client is None:
+            try:
+                from batchctl.core.clients.jina import JinaClient
+            except ImportError as e:
+                raise RuntimeError(
+                    "batchctl is required for Jina preprocessing. "
+                    "Install batchctl in the same Python environment as staff-finder."
+                ) from e
+            self._jina_client = JinaClient(api_key=self.get_jina_api_key())
+        return self._jina_client
 
     def fetch_jina_content(
         self,
         query: str,
         *,
         num_results: int = 5,
-        max_content_chars: int = 1500,
     ) -> str:
-        """Fetch and format Jina search results for a single query."""
+        """Fetch and format Jina search results for a single query.
+
+        Returns an empty string on any error so the LLM prompt stays clean.
+        """
         if not query:
             return ""
 
@@ -70,8 +77,17 @@ class JinaBatchTask(BatchTask):
 
         try:
             return _fetch()
-        except Exception as e:
-            return f"ERROR: {e}"
+        except Exception:
+            return ""
+
+    def fetch_row_content(self, row: pd.Series) -> str:
+        """Fetch Jina content for a single row.
+
+        Override this to customize fetch behaviour (e.g. primary + fallback queries).
+        The default implementation calls ``build_jina_query`` and ``fetch_jina_content``.
+        """
+        query = self.build_jina_query(row)
+        return self.fetch_jina_content(query, num_results=self.config.jina_max_results)
 
     def preprocess_with_jina(
         self,
@@ -87,7 +103,7 @@ class JinaBatchTask(BatchTask):
         work_dir.mkdir(parents=True, exist_ok=True)
         processed_csv = work_dir / f"{input_csv.stem}_preprocessed.csv"
 
-        # Build queries
+        # Build primary queries (stored in the output CSV for template reference)
         df["jina_query"] = df.apply(self.build_jina_query, axis=1)
         df[output_column] = ""
 
@@ -95,20 +111,14 @@ class JinaBatchTask(BatchTask):
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
-                executor.submit(
-                    self.fetch_jina_content,
-                    str(query),
-                    num_results=self.config.jina_max_results,
-                    max_content_chars=self.config.jina_max_content_chars,
-                ): idx
-                for idx, query in df["jina_query"].items()
+                executor.submit(self.fetch_row_content, row): idx for idx, row in df.iterrows()
             }
             for future in as_completed(futures):
                 idx = futures[future]
                 try:
                     df.at[idx, output_column] = future.result()
-                except Exception as e:
-                    df.at[idx, output_column] = f"ERROR: {e}"
+                except Exception:
+                    df.at[idx, output_column] = ""
 
         df.to_csv(processed_csv, index=False)
         return PreprocessResult(

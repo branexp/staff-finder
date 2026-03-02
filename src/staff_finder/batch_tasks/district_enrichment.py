@@ -9,7 +9,11 @@ import pandas as pd  # type: ignore
 from .base import PostprocessResult, PreprocessResult, TaskConfig
 from .jina_mixin import JinaBatchTask
 from .registry import register_task
-from .utils import normalize_domain, parse_json_response
+from .utils import normalize_domain, parse_json_response, require_column, resolve_value
+
+# Canonical district/state column groups accepted as input
+_DISTRICT_ALIASES = ("district_name", "district", "name")
+_STATE_ALIASES = ("state_abbr", "state", "state_code")
 
 
 @register_task("district_enrichment")
@@ -27,11 +31,22 @@ class DistrictEnrichmentTask(JinaBatchTask):
     def get_template_path(self) -> Path:
         return Path(__file__).resolve().parent.parent / "templates" / "district_enrichment.j2"
 
+    def validate_input(self, df: pd.DataFrame) -> list[str]:
+        """Validate input, accepting common column name aliases."""
+        errors: list[str] = []
+        try:
+            require_column(df, *_DISTRICT_ALIASES)
+        except ValueError as e:
+            errors.append(str(e))
+        try:
+            require_column(df, *_STATE_ALIASES)
+        except ValueError as e:
+            errors.append(str(e))
+        return errors
+
     def build_jina_query(self, row: pd.Series) -> str:
-        district = (
-            "" if pd.isna(row.get("district_name")) else str(row.get("district_name")).strip()
-        )
-        state = "" if pd.isna(row.get("state_abbr")) else str(row.get("state_abbr")).strip()
+        district = resolve_value(row, *_DISTRICT_ALIASES)
+        state = resolve_value(row, *_STATE_ALIASES)
         district_part = f'"{district}"' if district else ""
         return f"{district_part} {state} school district official website".strip()
 

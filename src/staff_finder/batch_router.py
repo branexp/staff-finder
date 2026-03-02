@@ -94,12 +94,14 @@ def start_batch_task(
     input_csv: Path,
     *,
     openai_api_key: str,
-    openai_model: str,
+    openai_model: str | None = None,
     max_jina_workers: int,
     output_csv: Path | None = None,
     batch_name: str | None = None,
 ) -> str:
     task = get_task(task_name)
+    # Resolve model: explicit override → task default
+    resolved_model = openai_model or task.config.default_model
     batchctl = _import_batchctl()
 
     _now = datetime.now(UTC)
@@ -127,7 +129,7 @@ def start_batch_task(
     summary = generator.generate(
         input_set=input_set,
         batch_name=resolved_batch_name,
-        model=openai_model,
+        model=resolved_model,
         system_template=system_template,
         user_template=user_template,
         response_format={"type": "json_object"},

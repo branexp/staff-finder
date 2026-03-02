@@ -9,7 +9,11 @@ import pandas as pd  # type: ignore
 from .base import PostprocessResult, PreprocessResult, TaskConfig
 from .jina_mixin import JinaBatchTask
 from .registry import register_task
-from .utils import parse_json_response, validate_nces_id
+from .utils import parse_json_response, require_column, resolve_value, validate_nces_id
+
+# Canonical district/state column groups accepted as input
+_DISTRICT_ALIASES = ("district_name", "district", "name")
+_STATE_ALIASES = ("state_abbr", "state", "state_code")
 
 
 @register_task("nces_enrichment")
@@ -21,43 +25,63 @@ class NcesEnrichmentTask(JinaBatchTask):
     required_input_columns = ["district_name", "state_abbr"]
     output_columns = ["nces_district_id"]
 
-    # NCES-specific config
+    # NCES only needs 2 Jina results; use the task-specific lightweight model
     NCES_MODEL = "gpt-5-nano"
 
     def __init__(self, config: TaskConfig | None = None) -> None:
-        super().__init__(config or TaskConfig(default_model=self.NCES_MODEL))
+        super().__init__(config or TaskConfig(default_model=self.NCES_MODEL, jina_max_results=2))
 
     def get_template_path(self) -> Path:
         return Path(__file__).resolve().parent.parent / "templates" / "nces_enrichment.j2"
 
+    def validate_input(self, df: pd.DataFrame) -> list[str]:
+        """Validate input, accepting common column name aliases."""
+        errors: list[str] = []
+        try:
+            require_column(df, *_DISTRICT_ALIASES)
+        except ValueError as e:
+            errors.append(str(e))
+        try:
+            require_column(df, *_STATE_ALIASES)
+        except ValueError as e:
+            errors.append(str(e))
+        return errors
+
     def build_jina_query(self, row: pd.Series) -> str:
         """Build primary query for NCES District ID."""
-        district = (
-            "" if pd.isna(row.get("district_name")) else str(row.get("district_name")).strip()
-        )
-        state = "" if pd.isna(row.get("state_abbr")) else str(row.get("state_abbr")).strip()
+        district = resolve_value(row, *_DISTRICT_ALIASES)
+        state = resolve_value(row, *_STATE_ALIASES)
         return f'"{district}" school district "{state}" "NCES District ID"'.strip()
 
     def build_fallback_query(self, row: pd.Series) -> str:
         """Build fallback query if primary returns no results."""
-        district = (
-            "" if pd.isna(row.get("district_name")) else str(row.get("district_name")).strip()
-        )
-        state = "" if pd.isna(row.get("state_abbr")) else str(row.get("state_abbr")).strip()
+        district = resolve_value(row, *_DISTRICT_ALIASES)
+        state = resolve_value(row, *_STATE_ALIASES)
         return (
             f'"{district}" "{state}" NCES ID site:nces.ed.gov OR site:publicschoolreview.com'
         ).strip()
 
     def format_jina_results(self, results: list) -> str:
-        """Format results with NCES-specific truncation."""
+        """Format up to jina_max_results results with content truncation."""
         chunks: list[str] = []
-        for i, result in enumerate(results[:2], 1):  # NCES only needs 2 results
+        for i, result in enumerate(results[: self.config.jina_max_results], 1):
             title = (getattr(result, "title", None) or "").strip()
             url = getattr(result, "url", "").strip()
             content = (getattr(result, "content", None) or "").strip()
             content = content[: self.config.jina_max_content_chars]
             chunks.append(f"[{i}] title: {title}\nurl: {url}\ncontent: {content}")
         return "\n\n".join(chunks)
+
+    def fetch_row_content(self, row: pd.Series) -> str:
+        """Try the primary query first; fall back to a secondary query when empty."""
+        content = self.fetch_jina_content(
+            self.build_jina_query(row), num_results=self.config.jina_max_results
+        )
+        if not content:
+            content = self.fetch_jina_content(
+                self.build_fallback_query(row), num_results=self.config.jina_max_results
+            )
+        return content
 
     def preprocess_data(
         self,

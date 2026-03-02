@@ -12,6 +12,7 @@ from staff_finder.batch_tasks.utils import (
     normalize_domain,
     parse_json_response,
     require_column,
+    resolve_value,
     strip_json_fence,
     validate_nces_id,
 )
@@ -237,3 +238,79 @@ def test_nces_validate_input_missing_columns():
     df = pd.DataFrame([{"district_name": "Acme USD"}])
     errors = task.validate_input(df)
     assert any("state_abbr" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Utils: resolve_value
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_value_first_alias():
+    row = pd.Series({"district_name": "Acme USD", "district": "Other"})
+    assert resolve_value(row, "district_name", "district") == "Acme USD"
+
+
+def test_resolve_value_fallback_alias():
+    row = pd.Series({"district": "Acme USD"})
+    assert resolve_value(row, "district_name", "district") == "Acme USD"
+
+
+def test_resolve_value_missing_all():
+    row = pd.Series({"other": "value"})
+    assert resolve_value(row, "district_name", "district") == ""
+
+
+def test_resolve_value_skips_nan():
+    row = pd.Series({"district_name": float("nan"), "district": "Acme USD"})
+    assert resolve_value(row, "district_name", "district") == "Acme USD"
+
+
+def test_resolve_value_skips_empty_string():
+    row = pd.Series({"district_name": "", "district": "Acme USD"})
+    assert resolve_value(row, "district_name", "district") == "Acme USD"
+
+
+# ---------------------------------------------------------------------------
+# NcesEnrichmentTask.fetch_row_content fallback
+# ---------------------------------------------------------------------------
+
+
+def test_nces_fetch_row_content_uses_fallback_when_primary_empty(monkeypatch):
+    """fetch_row_content() should try the fallback query when primary returns nothing."""
+    from staff_finder.batch_tasks.nces_enrichment import NcesEnrichmentTask
+
+    task = NcesEnrichmentTask()
+    calls: list[str] = []
+
+    def fake_fetch(query: str, *, num_results: int = 5) -> str:
+        calls.append(query)
+        # Primary (contains "NCES District ID") returns empty; fallback returns content
+        if "NCES District ID" in query:
+            return ""
+        return "fallback content"
+
+    monkeypatch.setattr(task, "fetch_jina_content", fake_fetch)
+    row = pd.Series({"district_name": "Test USD", "state_abbr": "TX"})
+    result = task.fetch_row_content(row)
+
+    assert len(calls) == 2
+    assert result == "fallback content"
+
+
+def test_nces_fetch_row_content_skips_fallback_when_primary_succeeds(monkeypatch):
+    """fetch_row_content() should not call the fallback when primary returns content."""
+    from staff_finder.batch_tasks.nces_enrichment import NcesEnrichmentTask
+
+    task = NcesEnrichmentTask()
+    calls: list[str] = []
+
+    def fake_fetch(query: str, *, num_results: int = 5) -> str:
+        calls.append(query)
+        return "primary content"
+
+    monkeypatch.setattr(task, "fetch_jina_content", fake_fetch)
+    row = pd.Series({"district_name": "Test USD", "state_abbr": "TX"})
+    result = task.fetch_row_content(row)
+
+    assert len(calls) == 1
+    assert result == "primary content"

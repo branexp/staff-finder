@@ -127,3 +127,63 @@ def test_nces_validate_input_valid():
     df = pd.DataFrame([{"district_name": "Acme USD", "state_abbr": "CA"}])
     errors = task.validate_input(df)
     assert errors == []
+
+
+# ---------------------------------------------------------------------------
+# Column alias support
+# ---------------------------------------------------------------------------
+
+
+def test_district_validate_input_accepts_aliases():
+    """validate_input() should accept 'district'/'state' column aliases."""
+    task = get_task("district_enrichment")
+    df = pd.DataFrame([{"district": "Acme USD", "state": "CA"}])
+    assert task.validate_input(df) == []
+
+
+def test_nces_validate_input_accepts_aliases():
+    """validate_input() should accept 'district'/'state' column aliases."""
+    task = get_task("nces_enrichment")
+    df = pd.DataFrame([{"district": "Acme USD", "state": "CA"}])
+    assert task.validate_input(df) == []
+
+
+def test_district_build_jina_query_with_aliases():
+    """build_jina_query() should work with aliased column names."""
+    task = get_task("district_enrichment")
+    row = pd.Series({"district": "Acme USD", "state": "CA"})
+    query = task.build_jina_query(row)
+    assert "Acme USD" in query
+    assert "CA" in query
+
+
+def test_nces_build_jina_query_with_aliases():
+    """build_jina_query() should work with aliased column names."""
+    task = get_task("nces_enrichment")
+    row = pd.Series({"district": "Acme USD", "state": "CA"})
+    query = task.build_jina_query(row)
+    assert "Acme USD" in query
+    assert "CA" in query
+
+
+# ---------------------------------------------------------------------------
+# NcesEnrichmentTask config
+# ---------------------------------------------------------------------------
+
+
+def test_nces_task_config_jina_max_results():
+    """NcesEnrichmentTask should request only 2 Jina results by default."""
+    task = get_task("nces_enrichment")
+    assert task.config.jina_max_results == 2
+
+
+def test_nces_task_config_default_model():
+    """NcesEnrichmentTask should default to gpt-5-nano."""
+    task = get_task("nces_enrichment")
+    assert task.config.default_model == "gpt-5-nano"
+
+
+def test_district_task_config_default_model():
+    """DistrictEnrichmentTask should default to gpt-4o-mini."""
+    task = get_task("district_enrichment")
+    assert task.config.default_model == "gpt-4o-mini"
