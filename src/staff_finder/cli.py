@@ -26,6 +26,7 @@ from .io_csv import ensure_output_columns, load_df, save_df
 from .limiters import Limiters
 from .logging_setup import setup_logging
 from .models import map_headers
+from .nces_enrichment import run_enrichment
 from .resolver import resolve_for_school_async
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -450,3 +451,59 @@ def batch_resume(
         typer.echo(str(result.output_csv))
     else:
         typer.echo(f"status: {result.status}")
+
+
+@app.command("enrich-nces")
+def enrich_nces(
+    input_csv: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        help="Input CSV with district_name and state_abbr columns.",
+    ),
+    output: Path = typer.Option(
+        Path("enriched_nces_districts.csv"),
+        "--output",
+        "-o",
+        dir_okay=False,
+        help="Output CSV path (default: enriched_nces_districts.csv).",
+    ),
+    jina_api_key: str | None = typer.Option(
+        None,
+        "--jina-api-key",
+        help="Jina API key (can also come from JINA_API_KEY env var).",
+    ),
+    openai_api_key: str | None = typer.Option(
+        None,
+        "--openai-api-key",
+        help="OpenAI API key (can also come from OPENAI_API_KEY env var).",
+    ),
+    max_concurrent: int = typer.Option(
+        5,
+        "--max-concurrent",
+        min=1,
+        help="Max concurrent enrichment requests (default: 5).",
+    ),
+) -> None:
+    """Enrich a CSV of school districts with their NCES District IDs."""
+    load_dotenv(override=False)
+    try:
+        row_count = run_enrichment(
+            input_csv,
+            output,
+            jina_api_key=jina_api_key,
+            openai_api_key=openai_api_key,
+            max_concurrent=max_concurrent,
+        )
+    except ValueError as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.API_OR_AUTH) from e
+    except (httpx.ReadTimeout, httpx.ConnectError) as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.NETWORK) from e
+    except Exception as e:
+        typer.echo(str(e))
+        raise typer.Exit(ExitCode.UNEXPECTED) from e
+
+    typer.echo(f"Output: {output}")
+    typer.echo(f"Rows processed: {row_count}")
