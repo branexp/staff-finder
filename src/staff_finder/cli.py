@@ -72,7 +72,6 @@ def _redact_secret(value: str | None) -> str:
 async def _worker(
     idx: int,
     row: pd.Series,
-    cols: tuple[str, str, str],
     cfg: Settings,
     lim: Limiters,
     results: dict[int, tuple[str, str, str]],
@@ -145,7 +144,7 @@ async def run_async(cfg: Settings, *, show_progress: bool) -> dict[str, Any]:
     )
 
     async def spawn(i: int, r: pd.Series) -> asyncio.Task[Any]:
-        return asyncio.create_task(_worker(i, r, cols, cfg, lim, results))
+        return asyncio.create_task(_worker(i, r, cfg, lim, results))
 
     try:
         it = iter(pending_rows)

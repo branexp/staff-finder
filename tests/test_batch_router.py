@@ -17,7 +17,6 @@ from staff_finder.batch_router import (
     start_batch_task,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
@@ -183,8 +182,12 @@ def test_start_batch_task_per_run_isolation(tmp_path: Path, monkeypatch: pytest.
         task_mock = MagicMock()
         task_mock.preprocess_data.side_effect = capturing_preprocess
         task_mock.load_prompt_templates.return_value = ("sys", "user")
-        monkeypatch.setattr("staff_finder.batch_router._import_batchctl", lambda: batchctl_mock)
-        monkeypatch.setattr("staff_finder.batch_router.get_task", lambda _name: task_mock)
+        monkeypatch.setattr(
+            "staff_finder.batch_router._import_batchctl", lambda bm=batchctl_mock: bm
+        )
+        monkeypatch.setattr(
+            "staff_finder.batch_router.get_task", lambda _name, tm=task_mock: tm
+        )
         start_batch_task(
             "district_enrichment",
             input_csv,
