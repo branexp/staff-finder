@@ -29,7 +29,11 @@ class NcesEnrichmentTask(JinaBatchTask):
     NCES_MODEL = "gpt-5-nano"
 
     def __init__(self, config: TaskConfig | None = None) -> None:
-        super().__init__(config or TaskConfig(default_model=self.NCES_MODEL, jina_max_results=2))
+        super().__init__(config or TaskConfig(
+            default_model=self.NCES_MODEL,
+            jina_max_results=2,
+            max_workers=25,
+        ))
 
     def get_template_path(self) -> Path:
         return Path(__file__).resolve().parent.parent / "templates" / "nces_enrichment.j2"
