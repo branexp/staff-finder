@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from .config import Settings  # type: ignore
-from .jina_client import search as jina_search  # type: ignore
-from .limiters import Limiters  # type: ignore
-from .models import School, SelectionResult  # type: ignore
-from .openai_selector import (  # type: ignore
+from .config import Settings
+from .jina_client import search as jina_search
+from .limiters import Limiters
+from .models import School, SelectionResult
+from .openai_selector import (
     load_system_prompt,
     parse_gpt_response,
     pick_best_url_async,
 )
-from .query_planner import build_queries  # type: ignore
-from .shortlist import round_robin_union  # type: ignore
+from .query_planner import build_queries
+from .shortlist import round_robin_union
 
 
 async def resolve_for_school_async(
