@@ -1,4 +1,4 @@
-"""District enrichment batch task."""
+"""NCES District ID enrichment batch task."""
 
 from __future__ import annotations
 
@@ -9,27 +9,30 @@ import pandas as pd  # type: ignore
 from .base import PostprocessResult, PreprocessResult, TaskConfig
 from .jina_mixin import JinaBatchTask
 from .registry import register_task
-from .utils import normalize_domain, parse_json_response, require_column, resolve_value
+from .utils import parse_json_response, require_column, resolve_value, validate_nces_id
 
 # Canonical district/state column groups accepted as input
 _DISTRICT_ALIASES = ("district_name", "district", "name")
 _STATE_ALIASES = ("state_abbr", "state", "state_code")
 
 
-@register_task("district_enrichment")
-class DistrictEnrichmentTask(JinaBatchTask):
-    """Enrich school districts with website URL and acronym."""
+@register_task("nces_enrichment")
+class NcesEnrichmentTask(JinaBatchTask):
+    """Enrich school districts with their 7-digit NCES District ID."""
 
-    task_name = "district_enrichment"
-    description = "Enrich school districts with official website URL and acronym via Jina search."
+    task_name = "nces_enrichment"
+    description = "Find official 7-digit NCES District ID for school districts via Jina search."
     required_input_columns = ["district_name", "state_abbr"]
-    output_columns = ["acronym", "website_url", "domain"]
+    output_columns = ["nces_district_id"]
+
+    # NCES only needs 2 Jina results; use the task-specific lightweight model
+    NCES_MODEL = "gpt-5-nano"
 
     def __init__(self, config: TaskConfig | None = None) -> None:
-        super().__init__(config or TaskConfig(default_model="gpt-4o-mini"))
+        super().__init__(config or TaskConfig(default_model=self.NCES_MODEL, jina_max_results=2))
 
     def get_template_path(self) -> Path:
-        return Path(__file__).resolve().parent.parent / "templates" / "district_enrichment.j2"
+        return Path(__file__).resolve().parent.parent / "templates" / "nces_enrichment.j2"
 
     def validate_input(self, df: pd.DataFrame) -> list[str]:
         """Validate input, accepting common column name aliases."""
@@ -45,23 +48,40 @@ class DistrictEnrichmentTask(JinaBatchTask):
         return errors
 
     def build_jina_query(self, row: pd.Series) -> str:
+        """Build primary query for NCES District ID."""
         district = resolve_value(row, *_DISTRICT_ALIASES)
         state = resolve_value(row, *_STATE_ALIASES)
-        district_part = f'"{district}"' if district else ""
-        return f"{district_part} {state} school district official website".strip()
+        return f'"{district}" school district "{state}" "NCES District ID"'.strip()
+
+    def build_fallback_query(self, row: pd.Series) -> str:
+        """Build fallback query if primary returns no results."""
+        district = resolve_value(row, *_DISTRICT_ALIASES)
+        state = resolve_value(row, *_STATE_ALIASES)
+        return (
+            f'"{district}" "{state}" NCES ID site:nces.ed.gov OR site:publicschoolreview.com'
+        ).strip()
 
     def format_jina_results(self, results: list) -> str:
+        """Format up to jina_max_results results with content truncation."""
         chunks: list[str] = []
-        for i, result in enumerate(results, 1):
+        for i, result in enumerate(results[: self.config.jina_max_results], 1):
             title = (getattr(result, "title", None) or "").strip()
-            description = (getattr(result, "description", None) or "").strip()
+            url = getattr(result, "url", "").strip()
             content = (getattr(result, "content", None) or "").strip()
             content = content[: self.config.jina_max_content_chars]
-            url = getattr(result, "url", "").strip()
-            chunks.append(
-                f"[{i}] title: {title}\nurl: {url}\ndescription: {description}\ncontent: {content}"
-            )
+            chunks.append(f"[{i}] title: {title}\nurl: {url}\ncontent: {content}")
         return "\n\n".join(chunks)
+
+    def fetch_row_content(self, row: pd.Series) -> str:
+        """Try the primary query first; fall back to a secondary query when empty."""
+        content = self.fetch_jina_content(
+            self.build_jina_query(row), num_results=self.config.jina_max_results
+        )
+        if not content:
+            content = self.fetch_jina_content(
+                self.build_fallback_query(row), num_results=self.config.jina_max_results
+            )
+        return content
 
     def preprocess_data(
         self,
@@ -91,9 +111,8 @@ class DistrictEnrichmentTask(JinaBatchTask):
         output_csv: Path,
     ) -> PostprocessResult:
         enriched = original_df.copy()
-        for col in self.output_columns:
-            if col not in enriched.columns:
-                enriched[col] = pd.NA
+        if "nces_district_id" not in enriched.columns:
+            enriched["nces_district_id"] = pd.NA
 
         status_col = "status" if "status" in merged_df.columns else None
         rows_succeeded = 0
@@ -120,25 +139,9 @@ class DistrictEnrichmentTask(JinaBatchTask):
                 rows_failed += 1
                 continue
 
-            acronym = payload.get("acronym")
-            website_url = payload.get("website_url")
-
-            if website_url and not isinstance(website_url, str):
-                website_url = str(website_url)
-
-            if website_url and "://" not in website_url:
-                website_url = f"https://{website_url}"
-
-            domain = normalize_domain(website_url)
-
-            if acronym:
-                enriched.at[source_index, "acronym"] = str(acronym).strip()
-            if website_url:
-                enriched.at[source_index, "website_url"] = str(website_url).strip()
-            if domain:
-                enriched.at[source_index, "domain"] = str(domain).strip()
-
-            if acronym or website_url or domain:
+            nces_id = validate_nces_id(payload.get("nces_district_id"))
+            if nces_id:
+                enriched.at[source_index, "nces_district_id"] = nces_id
                 rows_succeeded += 1
             else:
                 rows_failed += 1

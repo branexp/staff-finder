@@ -1,309 +1,316 @@
-"""Tests for the NCES district ID enrichment pipeline."""
+"""Tests for the NcesEnrichmentTask batch task."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
-from staff_finder.nces_enrichment import (
-    _format_search_results,
-    _jina_fetch,
-    build_fallback_query,
-    build_primary_query,
-    parse_nces_response,
-    run_enrichment,
+from staff_finder.batch_tasks import get_task, list_tasks
+from staff_finder.batch_tasks.utils import (
+    normalize_domain,
+    parse_json_response,
+    require_column,
+    resolve_value,
+    strip_json_fence,
+    validate_nces_id,
 )
 
 # ---------------------------------------------------------------------------
-# Query builders
+# Registry
 # ---------------------------------------------------------------------------
 
 
-def test_build_primary_query():
-    q = build_primary_query("Acme Unified School District", "CA")
-    assert '"Acme Unified School District"' in q
-    assert '"CA"' in q
-    assert '"NCES District ID"' in q
-
-
-def test_build_fallback_query():
-    q = build_fallback_query("Acme Unified School District", "CA")
-    assert '"Acme Unified School District"' in q
-    assert '"CA"' in q
-    assert "site:nces.ed.gov" in q
-    assert "site:publicschoolreview.com" in q
+def test_nces_enrichment_task_is_registered():
+    assert "nces_enrichment" in list_tasks()
+    task = get_task("nces_enrichment")
+    assert task.__class__.__name__ == "NcesEnrichmentTask"
 
 
 # ---------------------------------------------------------------------------
-# Search result formatter
+# Utils: validate_nces_id
 # ---------------------------------------------------------------------------
 
 
-def test_format_search_results_limits_to_two():
-    results = [
-        {"title": "Title 1", "url": "https://a.com", "content": "Content 1"},
-        {"title": "Title 2", "url": "https://b.com", "content": "Content 2"},
-        {"title": "Title 3", "url": "https://c.com", "content": "Content 3"},
-    ]
-    formatted = _format_search_results(results, max_results=2)
-    assert "[1]" in formatted
-    assert "[2]" in formatted
-    assert "[3]" not in formatted
+def test_validate_nces_id_valid():
+    assert validate_nces_id("1234567") == "1234567"
 
 
-def test_format_search_results_empty():
-    assert _format_search_results([]) == ""
+def test_validate_nces_id_null():
+    assert validate_nces_id(None) is None
 
 
-def test_format_search_results_single():
-    results = [{"title": "NCES Page", "url": "https://nces.ed.gov/x", "content": "ID: 1234567"}]
-    formatted = _format_search_results(results)
-    assert "NCES Page" in formatted
-    assert "https://nces.ed.gov/x" in formatted
-    assert "ID: 1234567" in formatted
+def test_validate_nces_id_empty():
+    assert validate_nces_id("") is None
 
 
-def test_format_search_results_truncates_content():
-    long_content = "x" * 3000
-    results = [{"title": "T", "url": "https://x.com", "content": long_content}]
-    formatted = _format_search_results(results, max_content_chars=100)
-    # Truncated content ends with "..."
-    assert formatted.endswith("...")
-    # Content portion must not exceed 103 chars (100 + "...")
-    content_part = formatted.split("content: ", 1)[1]
-    assert len(content_part) == 103
+def test_validate_nces_id_too_short():
+    assert validate_nces_id("123") is None
+
+
+def test_validate_nces_id_too_long():
+    assert validate_nces_id("12345678") is None
+
+
+def test_validate_nces_id_non_numeric():
+    assert validate_nces_id("ABC1234") is None
 
 
 # ---------------------------------------------------------------------------
-# LLM response parser
+# Utils: strip_json_fence
 # ---------------------------------------------------------------------------
 
 
-def test_parse_nces_response_valid_id():
-    raw = '{"nces_district_id":"1234567"}'
-    assert parse_nces_response(raw) == "1234567"
+def test_strip_json_fence_no_fence():
+    assert strip_json_fence('{"key":"val"}') == '{"key":"val"}'
 
 
-def test_parse_nces_response_null():
-    raw = '{"nces_district_id":null}'
-    assert parse_nces_response(raw) is None
+def test_strip_json_fence_with_fence():
+    raw = '```json\n{"key":"val"}\n```'
+    assert strip_json_fence(raw) == '{"key":"val"}'
 
 
-def test_parse_nces_response_empty_string():
-    assert parse_nces_response("") is None
+# ---------------------------------------------------------------------------
+# Utils: parse_json_response
+# ---------------------------------------------------------------------------
 
 
-def test_parse_nces_response_none():
-    assert parse_nces_response(None) is None
+def test_parse_json_response_valid():
+    result = parse_json_response('{"nces_district_id":"1234567"}')
+    assert result == {"nces_district_id": "1234567"}
 
 
-def test_parse_nces_response_strips_markdown_fence():
+def test_parse_json_response_null_input():
+    assert parse_json_response(None) is None
+
+
+def test_parse_json_response_empty():
+    assert parse_json_response("") is None
+
+
+def test_parse_json_response_invalid_json():
+    assert parse_json_response("not json") is None
+
+
+def test_parse_json_response_strips_fence():
     raw = '```json\n{"nces_district_id":"9876543"}\n```'
-    assert parse_nces_response(raw) == "9876543"
-
-
-def test_parse_nces_response_invalid_json():
-    assert parse_nces_response("not json at all") is None
-
-
-def test_parse_nces_response_missing_key():
-    raw = '{"some_other_key":"1234567"}'
-    assert parse_nces_response(raw) is None
-
-
-def test_parse_nces_response_too_short():
-    raw = '{"nces_district_id":"123"}'
-    assert parse_nces_response(raw) is None
-
-
-def test_parse_nces_response_too_long():
-    raw = '{"nces_district_id":"12345678"}'
-    assert parse_nces_response(raw) is None
-
-
-def test_parse_nces_response_non_numeric():
-    raw = '{"nces_district_id":"ABC1234"}'
-    assert parse_nces_response(raw) is None
+    result = parse_json_response(raw)
+    assert result == {"nces_district_id": "9876543"}
 
 
 # ---------------------------------------------------------------------------
-# Async unit tests (jina fetch with mocks)
+# Utils: normalize_domain
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_jina_fetch_uses_primary_query(monkeypatch: pytest.MonkeyPatch):
-    calls: list[str] = []
-
-    async def fake_search(cfg: Any, query: str) -> list[dict]:
-        calls.append(query)
-        return [{"title": "T", "url": "https://x.com", "content": "NCES District ID: 1234567"}]
-
-    monkeypatch.setattr("staff_finder.nces_enrichment.jina_search", fake_search)
-
-    from staff_finder.config import Settings
-
-    cfg = Settings(jina_api_key="jina_test", openai_api_key="sk_test", enable_jina_cache=False)
-    result = await _jina_fetch(cfg, "Acme USD", "CA")
-
-    assert len(calls) == 1  # Only primary query used
-    assert "NCES District ID: 1234567" in result
+def test_normalize_domain_strips_www():
+    assert normalize_domain("https://www.example.com") == "example.com"
 
 
-@pytest.mark.asyncio
-async def test_jina_fetch_falls_back_when_primary_empty(monkeypatch: pytest.MonkeyPatch):
-    calls: list[str] = []
+def test_normalize_domain_no_scheme():
+    assert normalize_domain("example.com") == "example.com"
 
-    async def fake_search(cfg: Any, query: str) -> list[dict]:
-        calls.append(query)
-        if "NCES District ID" in query:
-            return []  # Primary returns nothing
-        return [{"title": "Fallback", "url": "https://nces.ed.gov/y", "content": "ID: 9999999"}]
 
-    monkeypatch.setattr("staff_finder.nces_enrichment.jina_search", fake_search)
-
-    from staff_finder.config import Settings
-
-    cfg = Settings(jina_api_key="jina_test", openai_api_key="sk_test", enable_jina_cache=False)
-    result = await _jina_fetch(cfg, "Unknown USD", "TX")
-
-    assert len(calls) == 2  # Primary + fallback
-    assert "Fallback" in result
+def test_normalize_domain_none():
+    assert normalize_domain(None) is None
 
 
 # ---------------------------------------------------------------------------
-# run_enrichment end-to-end with full mocks
+# Utils: require_column
 # ---------------------------------------------------------------------------
 
 
-def test_run_enrichment_writes_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """run_enrichment writes a CSV with district_name, state_abbr, nces_district_id."""
+def test_require_column_found():
+    df = pd.DataFrame([{"District_Name": "Acme USD"}])
+    col = require_column(df, "district_name", "district")
+    assert col == "District_Name"
 
-    async def fake_search(cfg: Any, query: str) -> list[dict]:
-        return [
-            {"title": "NCES Page", "url": "https://nces.ed.gov/z", "content": "NCES District ID: 1234567"}
+
+def test_require_column_missing():
+    df = pd.DataFrame([{"other_col": "value"}])
+    with pytest.raises(ValueError, match="Missing required column"):
+        require_column(df, "district_name", "district")
+
+
+# ---------------------------------------------------------------------------
+# NcesEnrichmentTask.build_jina_query
+# ---------------------------------------------------------------------------
+
+
+def test_nces_build_jina_query():
+    task = get_task("nces_enrichment")
+    row = pd.Series({"district_name": "Acme USD", "state_abbr": "CA"})
+    query = task.build_jina_query(row)
+    assert '"Acme USD"' in query
+    assert '"CA"' in query
+    assert "NCES District ID" in query
+
+
+def test_nces_build_fallback_query():
+    from staff_finder.batch_tasks.nces_enrichment import NcesEnrichmentTask
+
+    task = NcesEnrichmentTask()
+    row = pd.Series({"district_name": "Acme USD", "state_abbr": "CA"})
+    query = task.build_fallback_query(row)
+    assert '"Acme USD"' in query
+    assert '"CA"' in query
+    assert "site:nces.ed.gov" in query
+    assert "site:publicschoolreview.com" in query
+
+
+# ---------------------------------------------------------------------------
+# NcesEnrichmentTask.postprocess_data
+# ---------------------------------------------------------------------------
+
+
+def test_nces_postprocess_valid_id(tmp_path: Path):
+    task = get_task("nces_enrichment")
+    original_df = pd.DataFrame([{"district_name": "Acme USD", "state_abbr": "CA"}])
+    merged_df = pd.DataFrame(
+        [
+            {
+                "source_index": 0,
+                "status": "success",
+                "output_content": '{"nces_district_id":"1234567"}',
+            }
         ]
-
-    class _FakeMessage:
-        content = '{"nces_district_id":"1234567"}'
-
-    class _FakeChoice:
-        message = _FakeMessage()
-
-    class _FakeCompletion:
-        choices = [_FakeChoice()]
-
-    class _FakeCompletions:
-        async def create(self, **kwargs: Any) -> Any:
-            return _FakeCompletion()
-
-    class _FakeOpenAI:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.chat = MagicMock()
-            self.chat.completions = _FakeCompletions()
-
-    monkeypatch.setattr("staff_finder.nces_enrichment.jina_search", fake_search)
-    monkeypatch.setattr("staff_finder.nces_enrichment.AsyncOpenAI", _FakeOpenAI)
-
-    input_csv = tmp_path / "missing_nces_districts.csv"
-    input_csv.write_text("district_name,state_abbr\nAcme USD,CA\nNorth Valley SD,TX\n")
-    output_csv = tmp_path / "enriched_nces_districts.csv"
-
-    count = run_enrichment(
-        input_csv,
-        output_csv,
-        jina_api_key="jina_test",
-        openai_api_key="sk_test",
     )
-
-    assert count == 2
-    df = pd.read_csv(output_csv, dtype=object)
-    assert list(df.columns) == ["district_name", "state_abbr", "nces_district_id"]
-    assert len(df) == 2
-    assert set(df["nces_district_id"].tolist()) == {"1234567"}
-
-
-def test_run_enrichment_null_becomes_empty_string(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """When LLM returns null, nces_district_id is blank in the CSV."""
-
-    async def fake_search(cfg: Any, query: str) -> list[dict]:
-        return [{"title": "No data", "url": "https://x.com", "content": "nothing useful"}]
-
-    class _FakeMessage:
-        content = '{"nces_district_id":null}'
-
-    class _FakeChoice:
-        message = _FakeMessage()
-
-    class _FakeCompletion:
-        choices = [_FakeChoice()]
-
-    class _FakeCompletions:
-        async def create(self, **kwargs: Any) -> Any:
-            return _FakeCompletion()
-
-    class _FakeOpenAI:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.chat = MagicMock()
-            self.chat.completions = _FakeCompletions()
-
-    monkeypatch.setattr("staff_finder.nces_enrichment.jina_search", fake_search)
-    monkeypatch.setattr("staff_finder.nces_enrichment.AsyncOpenAI", _FakeOpenAI)
-
-    input_csv = tmp_path / "missing.csv"
-    input_csv.write_text("district_name,state_abbr\nUnknown USD,NY\n")
     output_csv = tmp_path / "out.csv"
+    result = task.postprocess_data(merged_df, original_df, output_csv)
 
-    run_enrichment(input_csv, output_csv, jina_api_key="jk", openai_api_key="ok")
-
-    df = pd.read_csv(output_csv, dtype=object)
-    assert pd.isna(df.loc[0, "nces_district_id"]) or df.loc[0, "nces_district_id"] == ""
-
-
-def test_run_enrichment_missing_api_key(tmp_path: Path) -> None:
-    """run_enrichment raises ValueError if API keys are missing."""
-    import os
-
-    env_backup = {}
-    for key in ("JINA_API_KEY", "STAFF_FINDER_JINA_API_KEY", "OPENAI_API_KEY", "STAFF_FINDER_OPENAI_API_KEY"):
-        env_backup[key] = os.environ.pop(key, None)
-
-    try:
-        input_csv = tmp_path / "missing.csv"
-        input_csv.write_text("district_name,state_abbr\nTest,TX\n")
-        with pytest.raises(ValueError, match="Jina API key"):
-            run_enrichment(input_csv, tmp_path / "out.csv")
-    finally:
-        for key, val in env_backup.items():
-            if val is not None:
-                os.environ[key] = val
+    assert result.output_csv == output_csv
+    assert result.rows_succeeded == 1
+    assert result.rows_failed == 0
+    saved = pd.read_csv(output_csv, dtype=object)
+    assert saved.loc[0, "nces_district_id"] == "1234567"
 
 
-def test_run_enrichment_exception_writes_empty_row(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """When enrich_row raises, the row is written with an empty nces_district_id."""
-
-    async def fake_search(cfg: Any, query: str) -> list[dict]:
-        raise RuntimeError("network failure")
-
-    monkeypatch.setattr("staff_finder.nces_enrichment.jina_search", fake_search)
-
-    input_csv = tmp_path / "districts.csv"
-    input_csv.write_text("district_name,state_abbr\nFailure USD,CA\n")
+def test_nces_postprocess_null_id(tmp_path: Path):
+    task = get_task("nces_enrichment")
+    original_df = pd.DataFrame([{"district_name": "Unknown USD", "state_abbr": "NY"}])
+    merged_df = pd.DataFrame(
+        [{"source_index": 0, "status": "success", "output_content": '{"nces_district_id":null}'}]
+    )
     output_csv = tmp_path / "out.csv"
+    result = task.postprocess_data(merged_df, original_df, output_csv)
 
-    count = run_enrichment(input_csv, output_csv, jina_api_key="jk", openai_api_key="ok")
+    assert result.rows_succeeded == 0
+    assert result.rows_failed == 1
+    saved = pd.read_csv(output_csv, dtype=object)
+    assert pd.isna(saved.loc[0, "nces_district_id"])
 
-    assert count == 1
-    df = pd.read_csv(output_csv, dtype=object)
-    assert len(df) == 1
-    assert pd.isna(df.loc[0, "nces_district_id"]) or df.loc[0, "nces_district_id"] == ""
+
+def test_nces_postprocess_failed_status(tmp_path: Path):
+    task = get_task("nces_enrichment")
+    original_df = pd.DataFrame([{"district_name": "Acme USD", "state_abbr": "CA"}])
+    merged_df = pd.DataFrame(
+        [
+            {
+                "source_index": 0,
+                "status": "failed",
+                "output_content": '{"nces_district_id":"1234567"}',
+            }
+        ]
+    )
+    output_csv = tmp_path / "out.csv"
+    result = task.postprocess_data(merged_df, original_df, output_csv)
+
+    assert result.rows_succeeded == 0
+    assert result.rows_failed == 1
+    saved = pd.read_csv(output_csv, dtype=object)
+    assert pd.isna(saved.loc[0, "nces_district_id"])
+
+
+# ---------------------------------------------------------------------------
+# NcesEnrichmentTask.validate_input
+# ---------------------------------------------------------------------------
+
+
+def test_nces_validate_input_valid():
+    task = get_task("nces_enrichment")
+    df = pd.DataFrame([{"district_name": "Acme USD", "state_abbr": "CA"}])
+    assert task.validate_input(df) == []
+
+
+def test_nces_validate_input_missing_columns():
+    task = get_task("nces_enrichment")
+    df = pd.DataFrame([{"district_name": "Acme USD"}])
+    errors = task.validate_input(df)
+    assert any("state_abbr" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Utils: resolve_value
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_value_first_alias():
+    row = pd.Series({"district_name": "Acme USD", "district": "Other"})
+    assert resolve_value(row, "district_name", "district") == "Acme USD"
+
+
+def test_resolve_value_fallback_alias():
+    row = pd.Series({"district": "Acme USD"})
+    assert resolve_value(row, "district_name", "district") == "Acme USD"
+
+
+def test_resolve_value_missing_all():
+    row = pd.Series({"other": "value"})
+    assert resolve_value(row, "district_name", "district") == ""
+
+
+def test_resolve_value_skips_nan():
+    row = pd.Series({"district_name": float("nan"), "district": "Acme USD"})
+    assert resolve_value(row, "district_name", "district") == "Acme USD"
+
+
+def test_resolve_value_skips_empty_string():
+    row = pd.Series({"district_name": "", "district": "Acme USD"})
+    assert resolve_value(row, "district_name", "district") == "Acme USD"
+
+
+# ---------------------------------------------------------------------------
+# NcesEnrichmentTask.fetch_row_content fallback
+# ---------------------------------------------------------------------------
+
+
+def test_nces_fetch_row_content_uses_fallback_when_primary_empty(monkeypatch):
+    """fetch_row_content() should try the fallback query when primary returns nothing."""
+    from staff_finder.batch_tasks.nces_enrichment import NcesEnrichmentTask
+
+    task = NcesEnrichmentTask()
+    calls: list[str] = []
+
+    def fake_fetch(query: str, *, num_results: int = 5) -> str:
+        calls.append(query)
+        # Primary (contains "NCES District ID") returns empty; fallback returns content
+        if "NCES District ID" in query:
+            return ""
+        return "fallback content"
+
+    monkeypatch.setattr(task, "fetch_jina_content", fake_fetch)
+    row = pd.Series({"district_name": "Test USD", "state_abbr": "TX"})
+    result = task.fetch_row_content(row)
+
+    assert len(calls) == 2
+    assert result == "fallback content"
+
+
+def test_nces_fetch_row_content_skips_fallback_when_primary_succeeds(monkeypatch):
+    """fetch_row_content() should not call the fallback when primary returns content."""
+    from staff_finder.batch_tasks.nces_enrichment import NcesEnrichmentTask
+
+    task = NcesEnrichmentTask()
+    calls: list[str] = []
+
+    def fake_fetch(query: str, *, num_results: int = 5) -> str:
+        calls.append(query)
+        return "primary content"
+
+    monkeypatch.setattr(task, "fetch_jina_content", fake_fetch)
+    row = pd.Series({"district_name": "Test USD", "state_abbr": "TX"})
+    result = task.fetch_row_content(row)
+
+    assert len(calls) == 1
+    assert result == "primary content"
