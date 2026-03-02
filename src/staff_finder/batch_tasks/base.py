@@ -1,16 +1,31 @@
+"""Abstract base class for template-driven batch tasks."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pandas as pd  # type: ignore
+
+from .errors import BatchTaskError  # noqa: F401
 
 _SYSTEM_START = "{# SYSTEM_PROMPT_START #}"
 _SYSTEM_END = "{# SYSTEM_PROMPT_END #}"
 _USER_START = "{# USER_PROMPT_START #}"
 _USER_END = "{# USER_PROMPT_END #}"
+
+
+@dataclass
+class TaskConfig:
+    """Configuration options specific to a batch task."""
+
+    # Override these in subclasses for task-specific defaults
+    default_model: str = "gpt-4o-mini"
+    max_workers: int = 5
+    jina_max_results: int = 5
+    jina_max_content_chars: int = 1500
 
 
 @dataclass
@@ -21,8 +36,29 @@ class PreprocessResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class PostprocessResult:
+    """Result container returned by task postprocessors."""
+
+    output_csv: Path
+    rows_processed: int
+    rows_succeeded: int
+    rows_failed: int
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 class BatchTask(ABC):
     """Abstract base class for template-driven batch tasks."""
+
+    # Class-level metadata (override in subclasses)
+    task_name: ClassVar[str] = ""
+    description: ClassVar[str] = ""
+    requires_jina: ClassVar[bool] = False
+    required_input_columns: ClassVar[list[str]] = []
+    output_columns: ClassVar[list[str]] = []
+
+    def __init__(self, config: TaskConfig | None = None) -> None:
+        self.config = config or TaskConfig()
 
     @abstractmethod
     def get_template_path(self) -> Path:
@@ -44,8 +80,19 @@ class BatchTask(ABC):
         merged_df: pd.DataFrame,
         original_df: pd.DataFrame,
         output_csv: Path,
-    ) -> Path:
+    ) -> PostprocessResult:
         """Transform reconciled batch outputs and persist final enriched CSV."""
+
+    def validate_input(self, df: pd.DataFrame) -> list[str]:
+        """Validate input DataFrame. Returns list of validation errors."""
+        errors: list[str] = []
+        available = {c.lower() for c in df.columns}
+
+        for col in self.required_input_columns:
+            if col.lower() not in available:
+                errors.append(f"Missing required column: {col}")
+
+        return errors
 
     def load_prompt_templates(self) -> tuple[str, str]:
         """Load system/user prompt sections from this task's template file."""

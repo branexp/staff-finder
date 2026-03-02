@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -31,6 +31,7 @@ class BatchRunState:
 class ResumeResult:
     status: str
     output_csv: Path | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _utc_now_iso() -> str:
@@ -57,9 +58,7 @@ def _write_state(state: BatchRunState) -> None:
 def _read_state(batch_id: str) -> BatchRunState:
     path = _state_path(batch_id)
     if not path.exists():
-        raise FileNotFoundError(
-            f"No saved state for batch_id={batch_id!r}. Expected file: {path}"
-        )
+        raise FileNotFoundError(f"No saved state for batch_id={batch_id!r}. Expected file: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))
     return BatchRunState(**payload)
 
@@ -222,9 +221,9 @@ def resume_batch_task(batch_id: str, *, task_name: str, openai_api_key: str) -> 
 
     merged_df = pd.read_csv(merged_csv, dtype=object)
     original_df = pd.read_csv(Path(state.input_csv), dtype=object)
-    output_path = task.postprocess_data(merged_df, original_df, Path(state.output_csv))
+    result = task.postprocess_data(merged_df, original_df, Path(state.output_csv))
 
     state.merged_csv = str(merged_csv.resolve())
     state.completed_at = _utc_now_iso()
     _write_state(state)
-    return ResumeResult(status=status_value, output_csv=output_path)
+    return ResumeResult(status=status_value, output_csv=result.output_csv, metadata=result.metadata)

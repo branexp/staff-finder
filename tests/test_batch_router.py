@@ -1,4 +1,5 @@
 """Tests for batch_router orchestration using monkeypatched batchctl."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -114,9 +115,7 @@ def _make_preprocess_result(tmp_path: Path) -> Any:
 def test_start_batch_task_creates_state_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """start_batch_task should write a state JSON and return the openai_batch_id."""
     input_csv = tmp_path / "schools.csv"
-    pd.DataFrame([{"district_name": "Acme ISD", "state_abbr": "TX"}]).to_csv(
-        input_csv, index=False
-    )
+    pd.DataFrame([{"district_name": "Acme ISD", "state_abbr": "TX"}]).to_csv(input_csv, index=False)
 
     batchctl_mock = _make_batchctl_mock(openai_batch_id="batch_test001")
     preprocess_result = _make_preprocess_result(tmp_path)
@@ -153,9 +152,7 @@ def test_start_batch_task_per_run_isolation(tmp_path: Path, monkeypatch: pytest.
     import datetime as dt_module
 
     input_csv = tmp_path / "schools.csv"
-    pd.DataFrame([{"district_name": "Acme ISD", "state_abbr": "TX"}]).to_csv(
-        input_csv, index=False
-    )
+    pd.DataFrame([{"district_name": "Acme ISD", "state_abbr": "TX"}]).to_csv(input_csv, index=False)
 
     captured_dirs: list[Path] = []
 
@@ -185,9 +182,7 @@ def test_start_batch_task_per_run_isolation(tmp_path: Path, monkeypatch: pytest.
         monkeypatch.setattr(
             "staff_finder.batch_router._import_batchctl", lambda bm=batchctl_mock: bm
         )
-        monkeypatch.setattr(
-            "staff_finder.batch_router.get_task", lambda _name, tm=task_mock: tm
-        )
+        monkeypatch.setattr("staff_finder.batch_router.get_task", lambda _name, tm=task_mock: tm)
         start_batch_task(
             "district_enrichment",
             input_csv,
@@ -203,9 +198,7 @@ def test_start_batch_task_per_run_isolation(tmp_path: Path, monkeypatch: pytest.
 def test_start_batch_task_shard_config_limits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """ShardConfig limits must stay within OpenAI batch API caps."""
     input_csv = tmp_path / "schools.csv"
-    pd.DataFrame([{"district_name": "Acme ISD", "state_abbr": "TX"}]).to_csv(
-        input_csv, index=False
-    )
+    pd.DataFrame([{"district_name": "Acme ISD", "state_abbr": "TX"}]).to_csv(input_csv, index=False)
 
     batchctl_mock = _make_batchctl_mock()
     preprocess_result = _make_preprocess_result(tmp_path)
@@ -284,9 +277,7 @@ def test_resume_batch_task_complete_postprocesses(tmp_path: Path, monkeypatch: p
     output_jsonl.write_text("{}")
 
     pd.DataFrame([{"district_name": "Acme", "state_abbr": "TX"}]).to_csv(input_csv, index=False)
-    pd.DataFrame([{"district_name": "Acme", "state_abbr": "TX"}]).to_csv(
-        processed_csv, index=False
-    )
+    pd.DataFrame([{"district_name": "Acme", "state_abbr": "TX"}]).to_csv(processed_csv, index=False)
 
     state = BatchRunState(
         task_name="district_enrichment",
@@ -311,7 +302,14 @@ def test_resume_batch_task_complete_postprocesses(tmp_path: Path, monkeypatch: p
 
     expected_output = tmp_path / "postprocessed.csv"
     task_mock = MagicMock()
-    task_mock.postprocess_data.return_value = expected_output
+    from staff_finder.batch_tasks import PostprocessResult
+
+    task_mock.postprocess_data.return_value = PostprocessResult(
+        output_csv=expected_output,
+        rows_processed=1,
+        rows_succeeded=1,
+        rows_failed=0,
+    )
 
     batchctl_mock = _make_batchctl_mock(
         openai_batch_id="batch_done",
