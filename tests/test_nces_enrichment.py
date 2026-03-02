@@ -67,6 +67,17 @@ def test_format_search_results_single():
     assert "ID: 1234567" in formatted
 
 
+def test_format_search_results_truncates_content():
+    long_content = "x" * 3000
+    results = [{"title": "T", "url": "https://x.com", "content": long_content}]
+    formatted = _format_search_results(results, max_content_chars=100)
+    # Truncated content ends with "..."
+    assert formatted.endswith("...")
+    # Content portion must not exceed 103 chars (100 + "...")
+    content_part = formatted.split("content: ", 1)[1]
+    assert len(content_part) == 103
+
+
 # ---------------------------------------------------------------------------
 # LLM response parser
 # ---------------------------------------------------------------------------
@@ -101,6 +112,21 @@ def test_parse_nces_response_invalid_json():
 
 def test_parse_nces_response_missing_key():
     raw = '{"some_other_key":"1234567"}'
+    assert parse_nces_response(raw) is None
+
+
+def test_parse_nces_response_too_short():
+    raw = '{"nces_district_id":"123"}'
+    assert parse_nces_response(raw) is None
+
+
+def test_parse_nces_response_too_long():
+    raw = '{"nces_district_id":"12345678"}'
+    assert parse_nces_response(raw) is None
+
+
+def test_parse_nces_response_non_numeric():
+    raw = '{"nces_district_id":"ABC1234"}'
     assert parse_nces_response(raw) is None
 
 
@@ -259,3 +285,25 @@ def test_run_enrichment_missing_api_key(tmp_path: Path) -> None:
         for key, val in env_backup.items():
             if val is not None:
                 os.environ[key] = val
+
+
+def test_run_enrichment_exception_writes_empty_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When enrich_row raises, the row is written with an empty nces_district_id."""
+
+    async def fake_search(cfg: Any, query: str) -> list[dict]:
+        raise RuntimeError("network failure")
+
+    monkeypatch.setattr("staff_finder.nces_enrichment.jina_search", fake_search)
+
+    input_csv = tmp_path / "districts.csv"
+    input_csv.write_text("district_name,state_abbr\nFailure USD,CA\n")
+    output_csv = tmp_path / "out.csv"
+
+    count = run_enrichment(input_csv, output_csv, jina_api_key="jk", openai_api_key="ok")
+
+    assert count == 1
+    df = pd.read_csv(output_csv, dtype=object)
+    assert len(df) == 1
+    assert pd.isna(df.loc[0, "nces_district_id"]) or df.loc[0, "nces_district_id"] == ""

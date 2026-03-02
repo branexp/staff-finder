@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import itertools
 import json
 import os
+import re
 from pathlib import Path
 
 import pandas as pd  # type: ignore
@@ -27,6 +29,7 @@ from .jina_client import search as jina_search
 
 _NCES_MODEL = "gpt-5-nano"
 _NCES_MAX_RESULTS = 2
+_NCES_ID_RE = re.compile(r"^\d{7}$")
 _NCES_SYSTEM_TMPL = (
     "You are an expert data extractor. Your task is to find the official 7-digit NCES District ID"
     " for {district_name} in {state_abbr} using ONLY the provided search results."
@@ -57,13 +60,23 @@ def build_fallback_query(district_name: str, state_abbr: str) -> str:
     )
 
 
-def _format_search_results(results: list[dict], max_results: int = _NCES_MAX_RESULTS) -> str:
-    """Format the first *max_results* Jina results into a plain-text block."""
+def _format_search_results(
+    results: list[dict],
+    max_results: int = _NCES_MAX_RESULTS,
+    max_content_chars: int = 1500,
+) -> str:
+    """Format the first *max_results* Jina results into a plain-text block.
+
+    Each result's content is truncated to *max_content_chars* characters to
+    avoid inflating the LLM context window.
+    """
     chunks: list[str] = []
     for i, result in enumerate(results[:max_results], 1):
         title = (result.get("title") or "").strip()
         url = (result.get("url") or "").strip()
         content = (result.get("content") or "").strip()
+        if max_content_chars > 0 and len(content) > max_content_chars:
+            content = content[:max_content_chars] + "..."
         chunks.append(f"[{i}] title: {title}\nurl: {url}\ncontent: {content}")
     return "\n\n".join(chunks)
 
@@ -87,7 +100,11 @@ def parse_nces_response(raw: str | None) -> str | None:
     value = payload.get("nces_district_id")
     if value is None:
         return None
-    return str(value).strip() or None
+    candidate = str(value).strip()
+    # Validate: must be exactly 7 numeric digits
+    if not _NCES_ID_RE.match(candidate):
+        return None
+    return candidate
 
 
 async def _jina_fetch(cfg: Settings, district_name: str, state_abbr: str) -> str:
@@ -97,7 +114,7 @@ async def _jina_fetch(cfg: Settings, district_name: str, state_abbr: str) -> str
     if not results:
         fallback = build_fallback_query(district_name, state_abbr)
         results = await jina_search(cfg, fallback)
-    return _format_search_results(results)
+    return _format_search_results(results, max_content_chars=cfg.max_content_chars)
 
 
 @retry(
@@ -189,36 +206,57 @@ async def _run_enrichment_async(
         enable_jina_cache=False,
     )
 
+    # Clamp to at least 1 to avoid deadlocking a semaphore with 0 permits
+    worker_count = max(1, max_concurrent)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
+
+    # Build ordered list of (district, state) pairs
+    rows = [
+        (
+            "" if pd.isna(row[district_col]) else str(row[district_col]).strip(),
+            "" if pd.isna(row[state_col]) else str(row[state_col]).strip(),
+        )
+        for _, row in df.iterrows()
+    ]
+    total = len(rows)
+
+    async def process_row(district: str, state: str) -> tuple[str, str, str]:
+        """Run enrichment for one row; return empty ID on any unexpected error."""
+        try:
+            nces_id = await enrich_row(cfg, openai_api_key, district, state)
+            return district, state, (nces_id or "")
+        except Exception:
+            return district, state, ""
 
     # Open output file in write mode and write header immediately
     with open(output_csv, "w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         writer.writerow(["district_name", "state_abbr", "nces_district_id"])
 
-        sem = asyncio.Semaphore(max_concurrent)
+        if total == 0:
+            return 0
 
-        async def process_row(district: str, state: str) -> tuple[str, str, str]:
-            async with sem:
-                nces_id = await enrich_row(cfg, openai_api_key, district, state)
-            return district, state, (nces_id or "")
+        it = iter(rows)
+        in_flight: set[asyncio.Task[tuple[str, str, str]]] = set()
 
-        tasks = [
-            asyncio.create_task(
-                process_row(
-                    "" if pd.isna(row[district_col]) else str(row[district_col]).strip(),
-                    "" if pd.isna(row[state_col]) else str(row[state_col]).strip(),
-                )
-            )
-            for _, row in df.iterrows()
-        ]
+        # Seed with the first batch (up to worker_count tasks)
+        for district, state in itertools.islice(it, worker_count):
+            in_flight.add(asyncio.create_task(process_row(district, state)))
 
-        for task in asyncio.as_completed(tasks):
-            district, state, nces_id = await task
-            writer.writerow([district, state, nces_id])
-            fh.flush()
+        while in_flight:
+            done, in_flight = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                district, state, nces_id = task.result()  # safe: exceptions caught inside
+                writer.writerow([district, state, nces_id])
+                fh.flush()
+                # Spawn a replacement task for the next pending row
+                try:
+                    d, s = next(it)
+                    in_flight.add(asyncio.create_task(process_row(d, s)))
+                except StopIteration:
+                    pass
 
-    return len(tasks)
+    return total
 
 
 def run_enrichment(
