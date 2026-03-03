@@ -77,9 +77,10 @@ class StaffDirectoryTask(JinaBatchTask):
         "queries_used",
     ]
 
-    # Use two-stage template approach
-    STAGE_1_MODEL = "gpt-4o-mini"  # Candidate filtering
-    STAGE_2_MODEL = "gpt-4o-mini"  # Final selection
+    # Stage 1 (active): Candidate evaluation and selection
+    STAGE_1_MODEL = "gpt-4o-mini"
+    # Stage 2 (optional, for high-value runs): URL validation
+    STAGE_2_MODEL = "gpt-4o-mini"
 
     def __init__(self, config: TaskConfig | None = None) -> None:
         cfg = config or TaskConfig(
@@ -95,6 +96,12 @@ class StaffDirectoryTask(JinaBatchTask):
         return Path(__file__).resolve().parent.parent / "templates" / "staff_directory.j2"
 
     def get_stage2_template_path(self) -> Path:
+        """Return the path to the optional stage 2 validation template.
+
+        Stage 2 is an optional validation pass for high-value runs.
+        It is not invoked automatically; callers may use it to verify
+        selected URLs before writing final output.
+        """
         return Path(__file__).resolve().parent.parent / "templates" / "staff_directory_stage2.j2"
 
     def validate_input(self, df: pd.DataFrame) -> list[str]:
