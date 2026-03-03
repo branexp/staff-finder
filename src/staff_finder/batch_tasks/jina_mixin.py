@@ -114,6 +114,7 @@ class JinaBatchTask(BatchTask):
                 "Jina query failed after retries: query=%r attempts=%d",
                 query,
                 JINA_FETCH_MAX_ATTEMPTS,
+                exc_info=True,
             )
             return []
 
