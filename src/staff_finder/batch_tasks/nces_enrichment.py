@@ -9,7 +9,7 @@ import pandas as pd  # type: ignore
 from .base import PostprocessResult, PreprocessResult, TaskConfig
 from .jina_mixin import JinaBatchTask
 from .registry import register_task
-from .utils import parse_json_response, require_column, resolve_value, validate_nces_id
+from .dataframe_helpers import parse_json_response, require_column, resolve_value, validate_nces_id
 
 # Canonical district/state column groups accepted as input
 _DISTRICT_ALIASES = ("district_name", "district", "name")

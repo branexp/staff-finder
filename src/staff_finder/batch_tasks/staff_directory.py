@@ -11,7 +11,7 @@ import pandas as pd  # type: ignore
 from .base import PostprocessResult, PreprocessResult, TaskConfig
 from .jina_mixin import JinaBatchTask
 from .registry import register_task
-from .utils import parse_json_response, require_column, resolve_value
+from .dataframe_helpers import parse_json_response, require_column, resolve_value
 
 # Canonical column aliases for school input
 _SCHOOL_ALIASES = ("school_name", "name", "school")
