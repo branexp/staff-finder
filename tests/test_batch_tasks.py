@@ -187,3 +187,200 @@ def test_district_task_config_default_model():
     """DistrictEnrichmentTask should default to gpt-4o-mini."""
     task = get_task("district_enrichment")
     assert task.config.default_model == "gpt-4o-mini"
+
+
+# ---------------------------------------------------------------------------
+# StaffDirectoryTask
+# ---------------------------------------------------------------------------
+
+
+def test_staff_directory_task_is_registered():
+    assert "staff_directory" in list_tasks()
+    task = get_task("staff_directory")
+    assert task.__class__.__name__ == "StaffDirectoryTask"
+
+
+def test_staff_directory_task_registration():
+    task = get_task("staff_directory")
+    assert task is not None
+    assert task.task_name == "staff_directory"
+
+
+def test_staff_directory_builds_multiple_queries():
+    task = get_task("staff_directory")
+    row = pd.Series(
+        {
+            "school_name": "Lincoln Elementary",
+            "district_name": "Springfield Public Schools",
+            "city": "Springfield",
+            "state_abbr": "IL",
+        }
+    )
+    queries = task.build_jina_queries(row)
+    assert len(queries) >= 2
+    assert any("staff directory" in q.lower() for q in queries)
+
+
+def test_staff_directory_builds_multiple_queries_without_district():
+    task = get_task("staff_directory")
+    row = pd.Series(
+        {
+            "school_name": "Lincoln Elementary",
+            "state_abbr": "IL",
+        }
+    )
+    queries = task.build_jina_queries(row)
+    assert len(queries) >= 1
+    assert any("Lincoln Elementary" in q for q in queries)
+
+
+def test_staff_directory_empty_school_returns_no_queries():
+    task = get_task("staff_directory")
+    row = pd.Series({"school_name": "", "state_abbr": "IL"})
+    queries = task.build_jina_queries(row)
+    assert queries == []
+
+
+def test_staff_directory_shortlisting():
+    task = get_task("staff_directory")
+
+    # Mock result objects using simple namespaces
+    class _R:
+        def __init__(self, url, title="", content=""):
+            self.url = url
+            self.title = title
+            self.content = content
+
+    per_query = [
+        [_R("http://a.com", "A", "..."), _R("http://b.com", "B", "...")],
+        [_R("http://c.com", "C", "..."), _R("http://a.com", "A dupe", "...")],  # dupe URL
+    ]
+    shortlisted = task.shortlist_candidates(per_query, limit=5)
+    urls = [c["url"] for c in shortlisted]
+    # Round-robin: a.com from query 0, c.com from query 1, b.com from query 0
+    assert urls[0] == "http://a.com"
+    assert urls[1] == "http://c.com"
+    assert urls[2] == "http://b.com"
+    assert urls.count("http://a.com") == 1  # No dupes
+
+
+def test_staff_directory_shortlisting_respects_limit():
+    task = get_task("staff_directory")
+
+    class _R:
+        def __init__(self, url):
+            self.url = url
+            self.title = ""
+            self.content = ""
+
+    per_query = [[_R(f"http://site{i}.com") for i in range(10)]]
+    shortlisted = task.shortlist_candidates(per_query, limit=3)
+    assert len(shortlisted) == 3
+
+
+def test_staff_directory_template_sections_load():
+    task = get_task("staff_directory")
+    system_template, user_template = task.load_prompt_templates()
+    assert "staff directory" in system_template.lower()
+    assert "Return ONLY valid JSON" in system_template
+    assert "{{ record." in user_template
+
+
+def test_staff_directory_validate_input_accepts_aliases():
+    task = get_task("staff_directory")
+    df = pd.DataFrame([{"name": "Lincoln HS", "state": "IL"}])
+    assert task.validate_input(df) == []
+
+
+def test_staff_directory_validate_input_missing_school():
+    task = get_task("staff_directory")
+    df = pd.DataFrame([{"state_abbr": "IL"}])  # missing school column
+    errors = task.validate_input(df)
+    assert len(errors) >= 1
+
+
+def test_staff_directory_validate_input_missing_state():
+    task = get_task("staff_directory")
+    df = pd.DataFrame([{"school_name": "Lincoln HS"}])  # missing state column
+    errors = task.validate_input(df)
+    assert len(errors) >= 1
+
+
+def test_staff_directory_postprocess_writes_expected_columns(tmp_path: Path):
+    task = get_task("staff_directory")
+    original_df = pd.DataFrame(
+        [
+            {"school_name": "Lincoln Elementary", "state_abbr": "IL"},
+            {"school_name": "Jefferson Middle School", "state_abbr": "CA"},
+            {"school_name": "Unknown School", "state_abbr": "TX"},
+        ]
+    )
+    merged_df = pd.DataFrame(
+        [
+            {
+                "source_index": 0,
+                "status": "success",
+                "output_content": (
+                    '{"staff_directory_url":"https://lincoln.il.edu/staff",'
+                    '"confidence":"high","reasoning":"Official page"}'
+                ),
+            },
+            {
+                "source_index": 1,
+                "status": "success",
+                "output_content": (
+                    '{"staff_directory_url":"https://jefferson.ca.edu/staff",'
+                    '"confidence":"medium","reasoning":"District page"}'
+                ),
+            },
+            {
+                "source_index": 2,
+                "status": "success",
+                "output_content": '{"staff_directory_url":null,"confidence":"low","reasoning":"Not found"}',
+            },
+        ]
+    )
+
+    output_csv = tmp_path / "staff_directory_enriched.csv"
+    result = task.postprocess_data(merged_df, original_df, output_csv)
+    assert result.output_csv == output_csv
+    assert result.rows_processed == 3
+    assert result.rows_succeeded == 2
+    assert result.rows_failed == 1
+
+    saved = pd.read_csv(output_csv, dtype=object)
+    assert saved.loc[0, "staff_directory_url"] == "https://lincoln.il.edu/staff"
+    assert saved.loc[0, "confidence"] == "high"
+    assert saved.loc[1, "staff_directory_url"] == "https://jefferson.ca.edu/staff"
+    assert saved.loc[1, "confidence"] == "medium"
+    assert pd.isna(saved.loc[2, "staff_directory_url"])
+
+
+def test_staff_directory_postprocess_not_found_sentinel(tmp_path: Path):
+    task = get_task("staff_directory")
+    original_df = pd.DataFrame([{"school_name": "Test School", "state_abbr": "TX"}])
+    merged_df = pd.DataFrame(
+        [
+            {
+                "source_index": 0,
+                "status": "success",
+                "output_content": '{"staff_directory_url":"NOT_FOUND","confidence":"low","reasoning":"none"}',
+            }
+        ]
+    )
+
+    output_csv = tmp_path / "not_found.csv"
+    result = task.postprocess_data(merged_df, original_df, output_csv)
+    assert result.rows_succeeded == 0
+    assert result.rows_failed == 1
+
+    saved = pd.read_csv(output_csv, dtype=object)
+    assert saved.loc[0, "staff_directory_url"] == "NOT_FOUND"
+
+
+def test_staff_directory_task_config():
+    task = get_task("staff_directory")
+    assert task.config.default_model == "gpt-4o-mini"
+    assert task.config.jina_queries_per_row == 4
+    assert task.config.jina_max_results == 12
+    assert task.config.max_workers == 10

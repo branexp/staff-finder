@@ -27,6 +27,10 @@ class TaskConfig:
     jina_max_results: int = 5
     jina_max_content_chars: int = 1500
 
+    # Multi-query support
+    jina_queries_per_row: int = 1  # Number of queries to run per input row
+    jina_results_per_query: int = 5  # Results per individual query
+
 
 @dataclass
 class PreprocessResult:

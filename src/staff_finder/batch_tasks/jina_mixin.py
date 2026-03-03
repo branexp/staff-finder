@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,9 +29,88 @@ class JinaBatchTask(BatchTask):
     def build_jina_query(self, row: pd.Series) -> str:
         """Build a Jina search query for a single row. Return empty string to skip."""
 
+    def build_jina_queries(self, row: pd.Series) -> list[str]:
+        """Build a list of Jina search queries for a single row.
+
+        Return an empty list to skip this row.
+        Default implementation calls build_jina_query for single-query compatibility.
+        """
+        query = self.build_jina_query(row)
+        return [query] if query else []
+
     @abstractmethod
     def format_jina_results(self, results: list[Any]) -> str:
         """Format Jina search results into a string for the LLM prompt."""
+
+    def shortlist_candidates(
+        self,
+        per_query_results: list[list[Any]],
+        limit: int,
+    ) -> list[dict]:
+        """Interleave candidates from multiple queries using round-robin.
+
+        This prevents one query's results from dominating the shortlist.
+        Returns a list of candidate dicts with url, title, content.
+        """
+        out: list[dict] = []
+        seen_urls: set[str] = set()
+        i = 0
+
+        while len(out) < limit:
+            added = False
+            for results in per_query_results:
+                if i < len(results):
+                    result = results[i]
+                    url = (getattr(result, "url", "") or "").strip().lower()
+                    if url and url not in seen_urls:
+                        out.append(
+                            {
+                                "title": (getattr(result, "title", None) or "").strip(),
+                                "url": url,
+                                "content": (getattr(result, "content", None) or "").strip(),
+                            }
+                        )
+                        seen_urls.add(url)
+                        if len(out) >= limit:
+                            break
+                    added = True
+            if not added:
+                break
+            i += 1
+
+        return out
+
+    def fetch_row_content_multi_query(self, row: pd.Series) -> str:
+        """Fetch and format Jina content for a row using multiple queries.
+
+        Runs all queries from build_jina_queries(), shortlists results,
+        and formats for the LLM prompt.
+        """
+        queries = self.build_jina_queries(row)
+        if not queries:
+            return ""
+
+        per_query_results: list[list[Any]] = []
+
+        for query in queries:
+            if not query:
+                per_query_results.append([])
+                continue
+
+            try:
+                client = self.get_jina_client()
+                results = client.search(query, num_results=self.config.jina_results_per_query)
+                per_query_results.append(results)
+            except Exception:
+                per_query_results.append([])
+
+        # Shortlist candidates from all queries
+        candidates = self.shortlist_candidates(
+            per_query_results,
+            limit=self.config.jina_max_results,
+        )
+
+        return self.format_jina_results(candidates)
 
     def get_jina_api_key(self) -> str:
         """Get Jina API key from environment."""
@@ -103,16 +183,24 @@ class JinaBatchTask(BatchTask):
         work_dir.mkdir(parents=True, exist_ok=True)
         processed_csv = work_dir / f"{input_csv.stem}_preprocessed.csv"
 
-        # Build primary queries (stored in the output CSV for template reference)
-        df["jina_query"] = df.apply(self.build_jina_query, axis=1)
+        # Build queries (stored for template reference)
+        df["jina_queries"] = df.apply(
+            lambda row: json.dumps(self.build_jina_queries(row)),
+            axis=1,
+        )
         df[output_column] = ""
 
         worker_count = max(1, min(max_workers, 20))
 
+        # Choose fetch method based on multi-query setting
+        fetch_func = (
+            self.fetch_row_content_multi_query
+            if self.config.jina_queries_per_row > 1
+            else self.fetch_row_content
+        )
+
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            futures = {
-                executor.submit(self.fetch_row_content, row): idx for idx, row in df.iterrows()
-            }
+            futures = {executor.submit(fetch_func, row): idx for idx, row in df.iterrows()}
             for future in as_completed(futures):
                 idx = futures[future]
                 try:

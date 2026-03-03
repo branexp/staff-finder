@@ -4,6 +4,7 @@
 from . import (
     district_enrichment,  # noqa: F401
     nces_enrichment,  # noqa: F401
+    staff_directory,  # noqa: F401
 )
 from .base import BatchTask, PostprocessResult, PreprocessResult, TaskConfig
 from .errors import (
@@ -14,6 +15,7 @@ from .errors import (
     TransientError,
     ValidationError,
 )
+from .jina_mixin import JinaBatchTask
 from .registry import get_task, list_tasks, register_task
 from .utils import (
     normalize_domain,
@@ -27,6 +29,7 @@ from .utils import (
 __all__ = [
     # Base classes
     "BatchTask",
+    "JinaBatchTask",
     "TaskConfig",
     "PreprocessResult",
     "PostprocessResult",
