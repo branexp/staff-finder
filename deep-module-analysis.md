@@ -1,7 +1,7 @@
 # Deep-Module Audit: staff-finder
 
 **Date:** 2025-01-24  
-**Project:** /home/clawdbot/clawd/projects/staff-finder
+**Project:** ./staff-finder
 
 ---
 
