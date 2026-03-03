@@ -21,6 +21,26 @@ _STATE_ALIASES = ("state_abbr", "state", "state_code")
 _COUNTY_ALIASES = ("county_name", "county")
 
 
+def _to_json_list(value: object) -> list:
+    """Normalize a model field to a Python list, handling both list and JSON-string forms.
+
+    LLMs sometimes return JSON arrays as pre-encoded strings; this prevents double-encoding.
+    Returns an empty list when value is absent or cannot be parsed.
+    """
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return []
+
+
 def _build_query_variations(
     school: str,
     district: str,
@@ -224,9 +244,9 @@ class StaffDirectoryTask(JinaBatchTask):
             if url and url.lower() in ("not_found", "null", "none", ""):
                 url = "NOT_FOUND"
 
-            # Extract optional fields
-            candidate_urls = payload.get("candidate_urls", [])
-            queries_used = payload.get("queries_used", [])
+            # Extract optional fields, normalizing to list regardless of model output type
+            candidate_urls = _to_json_list(payload.get("candidate_urls"))
+            queries_used = _to_json_list(payload.get("queries_used"))
 
             # Write to enriched
             if url:
@@ -239,7 +259,6 @@ class StaffDirectoryTask(JinaBatchTask):
                 enriched.at[source_index, "candidate_urls"] = json.dumps(candidate_urls)
             if queries_used:
                 enriched.at[source_index, "queries_used"] = json.dumps(queries_used)
-
             if url and url != "NOT_FOUND":
                 rows_succeeded += 1
             else:

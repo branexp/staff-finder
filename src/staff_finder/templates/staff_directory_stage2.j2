@@ -17,9 +17,9 @@ Rules:
 {# SYSTEM_PROMPT_END #}
 
 {# USER_PROMPT_START #}
-School: {{ record.school_name }}
-District: {{ record.district_name }}
-State: {{ record.state_abbr }}
+School: {{ record.school_name if record.school_name is defined else (record.school if record.school is defined else record.name) }}
+District: {{ record.district_name if record.district_name is defined else record.district }}
+State: {{ record.state_abbr if record.state_abbr is defined else (record.state_code if record.state_code is defined else record.state) }}
 
 Proposed URL: {{ record.staff_directory_url }}
 

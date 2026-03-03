@@ -61,16 +61,17 @@ class JinaBatchTask(BatchTask):
             for results in per_query_results:
                 if i < len(results):
                     result = results[i]
-                    url = (getattr(result, "url", "") or "").strip().lower()
-                    if url and url not in seen_urls:
+                    url_raw = (getattr(result, "url", "") or "").strip()
+                    url_norm = url_raw.lower()
+                    if url_norm and url_norm not in seen_urls:
                         out.append(
                             {
                                 "title": (getattr(result, "title", None) or "").strip(),
-                                "url": url,
+                                "url": url_raw,
                                 "content": (getattr(result, "content", None) or "").strip(),
                             }
                         )
-                        seen_urls.add(url)
+                        seen_urls.add(url_norm)
                         if len(out) >= limit:
                             break
                     added = True
@@ -80,29 +81,49 @@ class JinaBatchTask(BatchTask):
 
         return out
 
+    def _fetch_jina_results(
+        self,
+        query: str,
+        *,
+        num_results: int,
+    ) -> list[Any]:
+        """Fetch raw Jina search result objects for a single query with retry logic.
+
+        Returns an empty list on any error so callers can continue gracefully.
+        """
+        if not query:
+            return []
+
+        @retry(
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            stop=stop_after_attempt(3),
+            retry=retry_if_exception(is_transient_http_error),
+        )
+        def _fetch() -> list[Any]:
+            client = self.get_jina_client()
+            return client.search(query, num_results=num_results)
+
+        try:
+            return _fetch()
+        except Exception:
+            return []
+
     def fetch_row_content_multi_query(self, row: pd.Series) -> str:
         """Fetch and format Jina content for a row using multiple queries.
 
-        Runs all queries from build_jina_queries(), shortlists results,
-        and formats for the LLM prompt.
+        Runs all queries from build_jina_queries(), shortlists results using
+        round-robin deduplication, and formats for the LLM prompt.
+        Each query uses the same tenacity retry logic as the single-query path.
         """
         queries = self.build_jina_queries(row)
         if not queries:
             return ""
 
-        per_query_results: list[list[Any]] = []
-
-        for query in queries:
-            if not query:
-                per_query_results.append([])
-                continue
-
-            try:
-                client = self.get_jina_client()
-                results = client.search(query, num_results=self.config.jina_results_per_query)
-                per_query_results.append(results)
-            except Exception:
-                per_query_results.append([])
+        per_query_results: list[list[Any]] = [
+            self._fetch_jina_results(q, num_results=self.config.jina_results_per_query)
+            for q in queries
+            if q
+        ]
 
         # Shortlist candidates from all queries
         candidates = self.shortlist_candidates(
@@ -142,23 +163,8 @@ class JinaBatchTask(BatchTask):
 
         Returns an empty string on any error so the LLM prompt stays clean.
         """
-        if not query:
-            return ""
-
-        @retry(
-            wait=wait_exponential(multiplier=1, min=2, max=10),
-            stop=stop_after_attempt(3),
-            retry=retry_if_exception(is_transient_http_error),
-        )
-        def _fetch() -> str:
-            client = self.get_jina_client()
-            results = client.search(query, num_results=num_results)
-            return self.format_jina_results(results)
-
-        try:
-            return _fetch()
-        except Exception:
-            return ""
+        results = self._fetch_jina_results(query, num_results=num_results)
+        return self.format_jina_results(results) if results else ""
 
     def fetch_row_content(self, row: pd.Series) -> str:
         """Fetch Jina content for a single row.
@@ -184,10 +190,11 @@ class JinaBatchTask(BatchTask):
         processed_csv = work_dir / f"{input_csv.stem}_preprocessed.csv"
 
         # Build queries (stored for template reference)
-        df["jina_queries"] = df.apply(
-            lambda row: json.dumps(self.build_jina_queries(row)),
-            axis=1,
-        )
+        queries_series = df.apply(lambda row: self.build_jina_queries(row), axis=1)
+        # JSON-encoded list for multi-query-aware templates (e.g. staff_directory.j2)
+        df["jina_queries"] = queries_series.apply(json.dumps)
+        # Backward-compatible single query column for existing templates (e.g. district_enrichment.j2)
+        df["jina_query"] = queries_series.apply(lambda qs: qs[0] if qs else "")
         df[output_column] = ""
 
         worker_count = max(1, min(max_workers, 20))
