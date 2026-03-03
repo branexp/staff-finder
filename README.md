@@ -1,23 +1,23 @@
 # Staff-Finder
 
-An async CLI tool that automatically discovers staff directory URLs for K-12 schools.
+A CLI tool that discovers staff directory URLs for K-12 schools using the OpenAI Batch API for cost-effective processing at scale.
 
 ## Overview
 
-Staff-Finder reads a CSV file containing school records (name, city, state, etc.) and intelligently finds the most relevant staff directory webpage for each school.
+Staff-Finder reads a CSV file containing school records (name, city, state, etc.) and finds the most relevant staff directory webpage for each school using a batch workflow.
 
 The tool combines two powerful technologies:
 
-1. **Jina Search API** — Retrieves search engine results (SERP) for each school
-2. **OpenAI Reasoning Model** — Analyzes search results and selects the most relevant staff directory URL
+1. **Jina Search API** — Retrieves search engine results (SERP) for each school using multiple query variations
+2. **OpenAI Batch API** — Analyzes search results and selects the most relevant staff directory URL at 50% cost savings vs. real-time API
 
 ## Features
 
-- **Async processing** — processes multiple schools concurrently
+- **Batch processing** — uses OpenAI Batch API for 50% cost savings
+- **Multi-query search** — runs multiple query variations per school and shortlists the best candidates
 - **Intelligent selection** — uses OpenAI to pick the best staff directory URL
 - **CSV input/output** — fits into existing data workflows
-- **Comprehensive search** — uses Jina's search API
-- **Configurable** — concurrency, API keys, model selection, caching
+- **Configurable** — concurrency, API keys, model selection
 
 ## Installation
 
@@ -37,24 +37,38 @@ Notes:
 
 ## Usage
 
-### Basic Usage
+### Find Staff Directory URLs
 
 ```bash
-staff-finder run schools.csv \
+# Start a batch job
+staff-finder batch start staff_directory schools.csv \
+  --openai-api-key YOUR_OPENAI_KEY \
   --jina-api-key YOUR_JINA_KEY \
+  --openai-model gpt-4o-mini
+
+# Check status / download results when complete
+staff-finder batch resume <batch_id> --task staff_directory \
   --openai-api-key YOUR_OPENAI_KEY
 ```
 
-### With All Options
+### Enrich Districts
 
 ```bash
-staff-finder run schools.csv \
-  --output schools_with_urls.csv \
-  --jina-api-key YOUR_JINA_KEY \
-  --openai-api-key YOUR_OPENAI_KEY \
-  --openai-model gpt-4o-mini \
-  --max-concurrent 5 \
-  --verbose
+staff-finder batch start district_enrichment districts.csv
+staff-finder batch resume <batch_id> --task district_enrichment
+```
+
+### Find NCES IDs
+
+```bash
+staff-finder batch start nces_enrichment districts.csv
+staff-finder batch resume <batch_id> --task nces_enrichment
+```
+
+### List Available Tasks
+
+```bash
+staff-finder batch tasks
 ```
 
 ### Config precedence
@@ -77,7 +91,7 @@ export OPENAI_API_KEY="your_openai_key"
 # Optional (overrides the default model):
 export OPENAI_MODEL="gpt-4o-mini"
 
-staff-finder run schools.csv
+staff-finder batch start staff_directory schools.csv
 ```
 
 Preferred (namespaced) env vars are also supported:
@@ -108,12 +122,12 @@ Create `~/.config/staff-finder/config.toml`:
 # jina_api_key = "..."
 
 openai_model = "gpt-4o-mini"
-max_concurrent_schools = 5
+max_concurrent_jina = 10
 ```
 
 ### Batch Commands (OpenAI Batch API)
 
-For large datasets you can use the non-blocking OpenAI Batch API via `staff-finder batch`.
+The batch commands use the non-blocking OpenAI Batch API.
 These commands require the optional `batchctl` package to be installed in the same environment.
 
 **List available tasks:**
@@ -125,7 +139,7 @@ staff-finder batch tasks
 **Start a batch job** (preprocesses, generates JSONL, submits to OpenAI Batch API, returns a batch ID):
 
 ```bash
-staff-finder batch start district_enrichment districts.csv \
+staff-finder batch start staff_directory schools.csv \
   --openai-api-key YOUR_OPENAI_KEY \
   --jina-api-key   YOUR_JINA_KEY
 ```
@@ -136,7 +150,7 @@ invocations with the same input file never overwrite each other's artifacts.
 **Resume / poll a batch job** (checks status; downloads and postprocesses results when complete):
 
 ```bash
-staff-finder batch resume batch_abc123 --task district_enrichment \
+staff-finder batch resume batch_abc123 --task staff_directory \
   --openai-api-key YOUR_OPENAI_KEY
 ```
 
@@ -147,17 +161,20 @@ enriched CSV and prints its path when the batch is complete.
 
 The input CSV file should contain at least these columns:
 
-- `name` (required) — School name
+- `school_name` (required) — School name
+- `state_abbr` (required) — State abbreviation (e.g. `CA`, `TX`)
+- `district_name` (optional) — District name (improves search quality)
 - `city` (optional) — City where school is located
-- `state` (optional) — State where school is located
+
+Common column aliases are also accepted: `name`, `school`, `state`, `state_code`, `district`.
 
 Example:
 
 ```csv
-name,city,state
-Lincoln High School,Portland,Oregon
-Washington Elementary,Seattle,Washington
-Roosevelt Middle School,San Francisco,California
+school_name,city,state_abbr
+Lincoln High School,Portland,OR
+Washington Elementary,Seattle,WA
+Roosevelt Middle School,San Francisco,CA
 ```
 
 See `example_schools.csv` for a sample input file.
@@ -166,22 +183,21 @@ See `example_schools.csv` for a sample input file.
 
 The tool creates (or updates) a CSV with all original columns plus:
 
-- `StaffDirectoryURL` — The discovered staff directory URL (`NOT_FOUND` / `ERROR_NOT_FOUND` for failures)
-- `Confidence` — Confidence level: high, medium, low
-- `Reasoning` — Brief explanation of why this URL was selected
-
-If your input already contains a URL column (e.g. `staff_directory_url`), Staff-Finder will reuse it.
+- `staff_directory_url` — The discovered staff directory URL (`NOT_FOUND` for failures)
+- `confidence` — Confidence level: high, medium, low
+- `reasoning` — Brief explanation of why this URL was selected
+- `candidate_urls` — JSON list of top candidate URLs considered
+- `queries_used` — JSON list of search queries used
 
 ## Configuration Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--output, -o` | Output CSV file path | `{input}_with_urls.csv` |
+| `--output, -o` | Output CSV file path | Auto-generated |
 | `--jina-api-key` | Jina API key | From env/config |
 | `--openai-api-key` | OpenAI API key (required) | From env/config |
-| `--openai-model` | OpenAI model to use | `gpt-4o-mini` |
-| `--max-concurrent` | Max concurrent requests | `5` |
-| `--verbose, -v` | Enable verbose logging | `False` |
+| `--openai-model` | OpenAI model to use | Task default (`gpt-4o-mini`) |
+| `--max-concurrent-jina` | Max concurrent Jina queries | `10` |
 
 ## API Keys
 
@@ -191,47 +207,13 @@ Required. Get your API key from [OpenAI Platform](https://platform.openai.com/ap
 ### Jina API Key
 Required. Get your API key from [Jina AI](https://jina.ai/).
 
-## Example
-
-```bash
-# Run with example data
-export OPENAI_API_KEY="sk-..."
-export JINA_API_KEY="jina_..."
-
-# output defaults to: example_schools_with_urls.csv
-staff-finder run example_schools.csv -v
-```
-
-Output:
-```
-2026-01-26 12:00:00 - staff_finder.cli - INFO - Reading schools from: example_schools.csv
-2026-01-26 12:00:00 - staff_finder.cli - INFO - Found 3 schools to process
-2026-01-26 12:00:00 - staff_finder.cli - INFO - Starting to find staff directory URLs...
-2026-01-26 12:00:01 - staff_finder.processor - INFO - Searching for: Lincoln High School Portland Oregon staff directory
-2026-01-26 12:00:02 - staff_finder.processor - INFO - Found 10 search results for Lincoln High School
-2026-01-26 12:00:03 - staff_finder.processor - INFO - Selected URL: https://www.pps.net/lincoln/staff (confidence: high)
-...
-2026-01-26 12:00:10 - staff_finder.cli - INFO - Results saved to: example_schools_with_urls.csv
-2026-01-26 12:00:10 - staff_finder.cli - INFO - 
-Summary:
-  Total schools: 3
-  URLs found: 3
-  Not found: 0
-
-Confidence levels:
-  high: 2
-  medium: 1
-```
-
 ## How It Works
 
 1. **Read Input** — Loads school records from CSV file
-2. **Search** — For each school, queries Jina Search API with: `"{school name} {city} {state} staff directory"`
-3. **Analyze** — OpenAI analyzes the search results and identifies the most relevant staff directory page based on:
-   - URL patterns (contains "staff", "faculty", "directory", etc.)
-   - Domain authority (official school domains)
-   - Content relevance (actual staff listings vs. job postings)
-4. **Output** — Saves results with URLs, confidence levels, and reasoning
+2. **Multi-Query Search** — For each school, generates up to 4 query variations and queries Jina Search API
+3. **Shortlisting** — Interleaves results from multiple queries using round-robin to get the best candidates
+4. **Batch Submit** — Sends all prompts to OpenAI Batch API for cost-effective processing
+5. **Postprocess** — Downloads results and writes the enriched CSV with URLs, confidence levels, and reasoning
 
 ## License
 

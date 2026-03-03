@@ -12,10 +12,11 @@ Batch tasks use OpenAI's Batch API for cost-effective, asynchronous processing o
 
 ## Available Tasks
 
-| Task | Description | Requires Jina |
-|------|-------------|---------------|
-| `district_enrichment` | Enrich districts with website URL and acronym | Yes |
-| `nces_enrichment` | Find official NCES District IDs | Yes |
+| Task | Description | Requires Jina | Output Columns |
+|------|-------------|---------------|----------------|
+| `district_enrichment` | Enrich districts with website URL and acronym | Yes | acronym, website_url, domain |
+| `nces_enrichment` | Find official NCES District IDs | Yes | nces_district_id |
+| `staff_directory` | Find staff directory URLs for schools | Yes | staff_directory_url, confidence, reasoning, candidate_urls, queries_used |
 
 ## Usage
 
