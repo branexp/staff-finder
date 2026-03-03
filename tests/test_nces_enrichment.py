@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from staff_finder.batch_tasks import get_task, list_tasks
-from staff_finder.batch_tasks.utils import (
+from staff_finder.batch_tasks.dataframe_helpers import (
     normalize_domain,
     parse_json_response,
     require_column,

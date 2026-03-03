@@ -84,11 +84,13 @@ User prompt with {{ record.column_name }} interpolation.
 
 ### 3. Register in __init__.py
 
-Add to `src/staff_finder/batch_tasks/__init__.py`:
+Import your task module in `src/staff_finder/batch_tasks/__init__.py` so registration runs at import time:
 
 ```python
 from . import my_task  # noqa: F401
 ```
+
+Note: `__all__` intentionally exports only the framework surface (not individual task modules).
 
 ## Task Types
 
@@ -119,6 +121,8 @@ class WebSearchTask(JinaBatchTask):
         # Format results for the prompt
         ...
 ```
+
+`JinaBatchTask` retries transient Jina failures with `JINA_FETCH_MAX_ATTEMPTS` (currently `3`) and emits structured preprocess start/completion/failure logs.
 
 ## Task Configuration
 
@@ -160,8 +164,9 @@ if success:
 
 ## Utilities
 
-Shared utilities in `batch_tasks/utils.py`:
+Shared utilities in `batch_tasks/dataframe_helpers.py`:
 
+- `resolve_value(row, *aliases)` — First non-empty value by alias
 - `require_column(df, *aliases)` — Case-insensitive column lookup
 - `strip_json_fence(value)` — Remove markdown code fences
 - `normalize_domain(url)` — Extract bare domain from URL

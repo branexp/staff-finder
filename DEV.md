@@ -34,7 +34,7 @@ pytest -v          # verbose
 pytest --tb=short  # with short tracebacks
 ```
 
-**24 tests** — all deterministic (no network).
+**78 tests** — all deterministic (no network).
 
 ## CI
 
@@ -47,7 +47,9 @@ GitHub Actions: `.github/workflows/ci.yml`
 
 | Command | Purpose |
 |---------|---------|
-| `staff-finder run <input.csv>` | Discover staff directory URLs for schools |
+| `staff-finder batch start <task> <input.csv>` | Start a batch job for a registered task |
+| `staff-finder batch resume <batch_id> --task <task>` | Check status and finalize completed jobs |
+| `staff-finder batch tasks` | List available batch tasks |
 
 ## Config Precedence
 
@@ -69,18 +71,27 @@ GitHub Actions: `.github/workflows/ci.yml`
 ```
 staff-finder/
 ├── src/staff_finder/
-│   ├── cli.py           # Typer CLI entry
-│   ├── config.py        # Config loading
-│   ├── io_csv.py        # CSV I/O helpers
-│   ├── jina_client.py   # Jina API client
-│   ├── limiters.py      # Rate limiting
-│   ├── models.py        # Data models
-│   ├── openai_selector.py  # OpenAI URL selector
-│   ├── query_planner.py # Search query construction
-│   ├── resolver.py      # Main URL resolution logic
-│   ├── shortlist.py     # URL shortlisting
-│   └── url_utils.py     # URL parsing helpers
-├── tests/               # pytest tests
-├── pyproject.toml       # Package + tool config
-└── system_prompt.md     # OpenAI system prompt
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── batch_router.py      # Batch orchestration
+│   ├── cli.py               # Typer CLI
+│   ├── config.py            # Settings management
+│   ├── io_csv.py            # CSV helpers
+│   ├── logging_setup.py     # Logging config
+│   ├── url_utils.py         # URL sanitization
+│   ├── templates/           # Jinja2 prompt templates
+│   └── batch_tasks/
+│       ├── __init__.py
+│       ├── base.py                # BatchTask base class
+│       ├── jina_mixin.py          # JinaBatchTask mixin (structured logging + retry)
+│       ├── registry.py            # Task registration
+│       ├── errors.py              # Error hierarchy
+│       ├── dataframe_helpers.py   # Shared DataFrame utilities
+│       ├── staff_directory.py     # Staff directory task
+│       ├── district_enrichment.py # District enrichment task
+│       └── nces_enrichment.py     # NCES enrichment task
+├── tests/                   # pytest tests
+├── pyproject.toml           # Package + tool config
+├── BATCH_TASKS.md           # Batch task framework guide
+└── deep-module-analysis.md  # Audit and architecture analysis
 ```

@@ -11,6 +11,34 @@ The tool combines two powerful technologies:
 1. **Jina Search API** — Retrieves search engine results (SERP) for each school using multiple query variations
 2. **OpenAI Batch API** — Analyzes search results and selects the most relevant staff directory URL at 50% cost savings vs. real-time API
 
+## Architecture
+
+Current package layout:
+
+```
+src/staff_finder/
+├── __init__.py, __main__.py
+├── batch_router.py      # Batch orchestration
+├── cli.py               # Typer CLI
+├── config.py            # Settings management
+├── io_csv.py            # CSV helpers
+├── logging_setup.py     # Logging setup
+├── url_utils.py         # URL sanitization
+├── templates/           # Jinja2 prompt templates
+└── batch_tasks/
+    ├── __init__.py          # Narrow exports + task import side-effects
+    ├── base.py              # BatchTask abstractions
+    ├── jina_mixin.py        # JinaBatchTask (+ structured preprocessing logs)
+    ├── registry.py          # Task registration/lookup
+    ├── errors.py            # Batch-task error taxonomy
+    ├── dataframe_helpers.py # Shared DataFrame helpers
+    ├── staff_directory.py
+    ├── district_enrichment.py
+    └── nces_enrichment.py
+```
+
+`jina_client.py` was removed; Jina client creation now lives inside `batch_tasks/jina_mixin.py`.
+
 ## Features
 
 - **Batch processing** — uses OpenAI Batch API for 50% cost savings

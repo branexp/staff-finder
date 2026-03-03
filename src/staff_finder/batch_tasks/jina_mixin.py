@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +15,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from .base import BatchTask, PreprocessResult, TaskConfig
 from .errors import is_transient_http_error
+
+logger = logging.getLogger(__name__)
+JINA_FETCH_MAX_ATTEMPTS = 3
 
 
 class JinaBatchTask(BatchTask):
@@ -96,7 +100,7 @@ class JinaBatchTask(BatchTask):
 
         @retry(
             wait=wait_exponential(multiplier=1, min=2, max=10),
-            stop=stop_after_attempt(3),
+            stop=stop_after_attempt(JINA_FETCH_MAX_ATTEMPTS),
             retry=retry_if_exception(is_transient_http_error),
         )
         def _fetch() -> list[Any]:
@@ -106,6 +110,11 @@ class JinaBatchTask(BatchTask):
         try:
             return _fetch()
         except Exception:
+            logger.warning(
+                "Jina query failed after retries: query=%r attempts=%d",
+                query,
+                JINA_FETCH_MAX_ATTEMPTS,
+            )
             return []
 
     def fetch_row_content_multi_query(self, row: pd.Series) -> str:
@@ -198,6 +207,12 @@ class JinaBatchTask(BatchTask):
         df[output_column] = ""
 
         worker_count = max(1, min(max_workers, 20))
+        row_count = int(len(df))
+        logger.info(
+            "Starting Jina preprocessing: rows=%d workers=%d",
+            row_count,
+            worker_count,
+        )
 
         # Choose fetch method based on multi-query setting
         fetch_func = (
@@ -216,7 +231,16 @@ class JinaBatchTask(BatchTask):
                     df.at[idx, output_column] = ""
 
         df.to_csv(processed_csv, index=False)
+        success_count = int(df[output_column].fillna("").astype(str).str.len().gt(0).sum())
+        failed_count = row_count - success_count
+        logger.info(
+            "Completed Jina preprocessing: rows=%d succeeded=%d failed=%d workers=%d",
+            row_count,
+            success_count,
+            failed_count,
+            worker_count,
+        )
         return PreprocessResult(
             processed_csv=processed_csv,
-            metadata={"row_count": int(len(df)), "max_workers": worker_count},
+            metadata={"row_count": row_count, "max_workers": worker_count},
         )
