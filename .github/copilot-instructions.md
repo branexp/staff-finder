@@ -105,7 +105,7 @@ When contributing:
 ## Key Patterns from Audit
 Copilot should preserve these design patterns:
 
-- Dependency injection for API keys/configuration values.
+- Configuration handling: current code primarily uses environment variables (via helpers) for API keys/config values; prefer dependency injection for new code and avoid introducing new direct environment-variable reads.
 - Template Method-style flow in batch task abstractions.
 - Narrow public API surface in `batch_tasks/__init__.py`.
 - Structured logging during preprocessing operations.
