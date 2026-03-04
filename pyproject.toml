@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "staff-finder"
-version = "0.3.0"
+version = "0.4.0"
 description = "Async CLI tool that automatically discovers staff directory URLs for K-12 schools"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,7 @@ dependencies = [
 
 [project.scripts]
 staff-finder = "staff_finder.cli:app"
+sfind = "staff_finder.cli:app"
 
 [project.optional-dependencies]
 dev = [
